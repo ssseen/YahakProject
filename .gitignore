@@ -1,0 +1,13 @@
+backend/.env
+**/.env
+.env
+# Python
+backend/__pycache__/
+backend/venv/
+**/*.pyc
+
+# Node
+frontend/node_modules/
+
+# 기타
+.DS_Store
