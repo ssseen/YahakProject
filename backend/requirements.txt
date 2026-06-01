@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-dotenv
+google-generativeai
+httpx
+opencv-python
+numpy
+pillow
+python-multipart
