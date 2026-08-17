@@ -1,14 +1,16 @@
 """
-국어/사회/과학(국사과) 해설 파이프라인 - 엔드투엔드 오케스트레이션.
+국어/사회/과학(국사과)/영어 해설 파이프라인 - 엔드투엔드 오케스트레이션.
 
   1) crop_pointed_question으로 손끝 주변 crop (vision_processor.py, 기존 코드)
   2) extract_problem_info로 Gemini 1차 호출 (OCR / 키워드 / 삽화유무)
   3) classify_problem으로 유형 분류 (지금은 Pinecone 연동 전, 목업)
-  4) 국어/사회/과학이면 explain_guksagwa로 Gemini 2차 호출, 아니면 미지원으로 반환
+  4) 국어/사회/과학이면 explain_guksagwa로, 영어면 explain_english로 Gemini 2차 호출,
+     나머지(수학)는 미지원으로 반환
   5) 최종 JSON 조립 (콘솔 출력 / 파일 저장은 호출부 몫)
 
-수학/영어 분기는 아직 없다 - GUKSAGWA_SUBJECTS에 없는 과목은 전부 "미지원"으로 빠지고,
-나중에 그 분기들을 추가할 자리만 남겨뒀다 (run_pipeline의 if/else 부분).
+수학 분기는 아직 없다 - GUKSAGWA_SUBJECTS/ENGLISH_SUBJECTS 어디에도 없는 과목은 전부
+"미지원"으로 빠지고, 나중에 수학 분기를 추가할 자리만 남겨뒀다 (run_pipeline의
+if/elif/else 부분).
 """
 import json
 import cv2
@@ -17,8 +19,10 @@ from vision_processor import compute_crop_bounds
 from problem_extractor import extract_problem_info
 from classifier import classify_problem
 from guksagwa_explainer import explain_guksagwa
+from english_explainer import explain_english
 
 GUKSAGWA_SUBJECTS = {"국어", "사회", "과학"}
+ENGLISH_SUBJECTS = {"영어"}
 
 
 def _crop_illustration(cropped_img, bbox):
@@ -105,13 +109,7 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
             illustration_bbox_out = ocr_result.get("illustration_bbox")
 
     subject = classification.get("과목")
-    if subject not in GUKSAGWA_SUBJECTS:
-        result = {
-            "status": "unsupported_subject",
-            "과목": subject,
-            "message": f"{subject} 분기는 아직 구현되지 않았습니다 (국어/사회/과학만 지원)",
-        }
-    else:
+    if subject in GUKSAGWA_SUBJECTS:
         # 2차 호출에는 삽화만 잘라낸 crop 대신 cropped(문제 전체)를 붙인다 - Gemini가 준
         # 삽화 좌표가 부정확하면 축 레이블이나 "그림 (가)" 같은 캡션이 crop에서 잘려나가는데,
         # 이게 에러 없이 해설만 조용히 틀리는 형태로 나타나서 추적이 어렵기 때문.
@@ -126,6 +124,28 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
             "과목": subject,
             "유형": f"{classification.get('대분류', '')} > {classification.get('중분류', '')}",
             "illustration_attached": illustration_attached,
+        }
+    elif subject in ENGLISH_SUBJECTS:
+        # 국사과와 동일한 규칙: 삽화가 있으면 삽화 crop이 아니라 cropped(문제 전체)를 붙인다.
+        attach_img = cropped if has_illustration else None
+        illustration_attached = has_illustration
+
+        print("3. Gemini 2차 호출 (영어 해설)...")
+        explanation = explain_english(ocr_result, classification, attach_img, user_question)
+        result = {
+            "subject": subject,
+            "passage": explanation.get("passage", ""),
+            "tokens": explanation.get("tokens", []),
+            "translation": explanation.get("translation", ""),
+            "answer": explanation.get("answer", ""),
+            "explanation_steps": explanation.get("explanation_steps", []),
+            "illustration_attached": illustration_attached,
+        }
+    else:
+        result = {
+            "status": "unsupported_subject",
+            "과목": subject,
+            "message": f"{subject} 분기는 아직 구현되지 않았습니다 (국어/사회/과학/영어만 지원)",
         }
 
     result["has_illustration"] = has_illustration
