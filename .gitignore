@@ -9,5 +9,9 @@ backend/venv/
 # Node
 frontend/node_modules/
 
+# 테스트/실험용 대용량 폴더
+image/
+opencvtest/
+
 # 기타
 .DS_Store
