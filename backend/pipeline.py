@@ -20,6 +20,7 @@ from problem_extractor import extract_problem_info
 from classifier import classify_problem
 from guksagwa_explainer import explain_guksagwa
 from english_explainer import explain_english
+from answer_utils import normalize_answer
 
 GUKSAGWA_SUBJECTS = {"국어", "사회", "과학"}
 ENGLISH_SUBJECTS = {"영어"}
@@ -67,10 +68,16 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
       국사과 분기를 테스트하고 싶을 때 사용 (classifier.classify_problem 참고).
     save_path: 지정하면 최종 결과를 JSON 파일로도 저장한다.
 
-    반환:
-      성공 시   {"해설": str, "정답": str, "과목": str, "유형": str}
-      미지원 과목 {"status": "unsupported_subject", "과목": str, "message": str}
-      오류 시   {"status": "error", "message": str}
+    반환 (해설 응답 명세서 - 국사과/영어 분기 참고):
+      국사과 성공 시 {"status": "success", "type": "guksagwa", "subject": str,
+                    "problem_type": str, "problem_text": str, "explanation": str,
+                    "answer": {"number": int|None, "text": str}, ...}
+      영어 성공 시   {"status": "success", "type": "english", "subject": str,
+                    "problem_type": str, "passage": {...}, "options": [...],
+                    "translation": {...}, "explanation": str,
+                    "answer": {"number": int|None, "text": str}, ...}
+      미지원 과목    {"status": "unsupported_subject", "과목": str, "message": str}
+      오류 시        {"status": "error", "message": str}
     """
     img = cv2.imread(image_path)
     if img is None:
@@ -109,6 +116,8 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
             illustration_bbox_out = ocr_result.get("illustration_bbox")
 
     subject = classification.get("과목")
+    problem_type = f"{classification.get('대분류', '')} > {classification.get('중분류', '')}"
+
     if subject in GUKSAGWA_SUBJECTS:
         # 2차 호출에는 삽화만 잘라낸 crop 대신 cropped(문제 전체)를 붙인다 - Gemini가 준
         # 삽화 좌표가 부정확하면 축 레이블이나 "그림 (가)" 같은 캡션이 crop에서 잘려나가는데,
@@ -119,10 +128,13 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
         print("3. Gemini 2차 호출 (국사과 해설)...")
         explanation = explain_guksagwa(ocr_result, classification, attach_img, user_question)
         result = {
-            "해설": explanation.get("해설", ""),
-            "정답": explanation.get("정답", ""),
-            "과목": subject,
-            "유형": f"{classification.get('대분류', '')} > {classification.get('중분류', '')}",
+            "status": "success",
+            "type": "guksagwa",
+            "subject": subject,
+            "problem_type": problem_type,
+            "problem_text": ocr_result.get("ocr_text", ""),
+            "explanation": explanation.get("explanation", ""),
+            "answer": normalize_answer(explanation.get("answer")),
             "illustration_attached": illustration_attached,
         }
     elif subject in ENGLISH_SUBJECTS:
@@ -132,13 +144,18 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
 
         print("3. Gemini 2차 호출 (영어 해설)...")
         explanation = explain_english(ocr_result, classification, attach_img, user_question)
+        options_out = explanation.get("options", [])
         result = {
+            "status": "success",
+            "type": "english",
             "subject": subject,
-            "passage": explanation.get("passage", ""),
-            "tokens": explanation.get("tokens", []),
-            "translation": explanation.get("translation", ""),
-            "answer": explanation.get("answer", ""),
-            "explanation_steps": explanation.get("explanation_steps", []),
+            "problem_type": problem_type,
+            "passage": explanation.get("passage", {"text": "", "tokens": []}),
+            "options": options_out,
+            "translation": explanation.get("translation", {"passage": "", "options": []}),
+            "explanation": explanation.get("explanation", ""),
+            # options을 같이 넘겨서, Gemini가 번호만 주고 본문을 비운 경우 보기에서 채워 넣는다.
+            "answer": normalize_answer(explanation.get("answer"), options_out),
             "illustration_attached": illustration_attached,
         }
     else:
