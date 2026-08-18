@@ -21,7 +21,7 @@ _PROMPT_TEMPLATE = """
 - 친근한 말투
 - 아래 JSON 형식으로만 답하세요. 다른 설명, 인사말, 마크다운 코드블록 없이 순수 JSON만 출력하세요.
 
-{{"해설": "문제를 어떻게 풀어야 하는지 자연스러운 설명", "정답": "정답 번호와 내용"}}
+{{"explanation": "문제를 어떻게 풀어야 하는지 자연스러운 설명", "answer": "정답 번호와 내용"}}
 
 [문제 내용 (OCR)]
 {ocr_text}
@@ -43,6 +43,22 @@ _ILLUSTRATION_HINT = (
 )
 
 
+def _apply_korean_key_fallback(parsed):
+    """
+    프롬프트로 영문 키({"explanation","answer"})를 요청해도, Gemini가 가끔 지시를 어기고
+    예전 한글 키({"해설","정답"})로 돌려줄 수 있다. 이걸 그냥 parsed.get("explanation", "")로
+    읽으면 에러 없이 빈 해설이 그대로 프론트로 나가버린다 - 조용히 틀리는 형태라 원인 추적이
+    제일 어려운 실패 모드다. 그래서 반환 직전에 한글 키가 있으면 영문 키로 옮기고 경고를 남긴다.
+    """
+    if "explanation" not in parsed and "해설" in parsed:
+        print("경고: Gemini가 국사과 해설을 한글 키('해설')로 반환함 - explanation으로 폴백 매핑")
+        parsed["explanation"] = parsed.get("해설", "")
+    if "answer" not in parsed and "정답" in parsed:
+        print("경고: Gemini가 국사과 정답을 한글 키('정답')로 반환함 - answer로 폴백 매핑")
+        parsed["answer"] = parsed.get("정답", "")
+    return parsed
+
+
 def explain_guksagwa(ocr_result, classification, problem_img=None, user_question="이 문제 좀 알려줘"):
     """
     ocr_result: extract_problem_info()의 반환값 ({"ocr_text", "keywords", "has_illustration", ...}).
@@ -51,7 +67,10 @@ def explain_guksagwa(ocr_result, classification, problem_img=None, user_question
       cropped를 그대로 넘겨받음 - 삽화만 잘라낸 crop이 아님, 모듈 docstring 참고).
       없으면 None - 이 경우 텍스트만으로 호출한다.
 
-    반환: {"해설": str, "정답": str}
+    반환: {"explanation": str, "answer": str}
+    answer는 원문 문자열 그대로 반환한다 - {number, text} 정규화는 pipeline.py가
+    answer_utils.normalize_answer로 한 번만 한다 (english_explainer.py와 공용 로직이라
+    여기서 하지 않음).
     """
     prompt = _PROMPT_TEMPLATE.format(
         ocr_text=ocr_result.get("ocr_text", ""),
@@ -70,4 +89,9 @@ def explain_guksagwa(ocr_result, classification, problem_img=None, user_question
 
     model = get_model(json_mode=True)
     response = model.generate_content(parts)
-    return parse_json_response(response.text)
+    parsed = _apply_korean_key_fallback(parse_json_response(response.text))
+
+    return {
+        "explanation": parsed.get("explanation", ""),
+        "answer": parsed.get("answer", ""),
+    }

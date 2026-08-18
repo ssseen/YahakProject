@@ -9,6 +9,10 @@ _FORMAT_INSTRUCTION = """
 반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 인사말, 마크다운 코드블록 없이 순수 JSON만 출력하세요.
 {
   "ocr_text": "학생이 가리킨 문제의 지문과 보기를 포함한 전체 텍스트",
+  "passage_text": "보기(①②③④ 등 선택지)를 제외한 지문·발문 원문. 선택지가 없는 문제면
+    ocr_text와 동일하게 채우세요.",
+  "options": [{"no": 1, "text": "보기 1번 내용"}, {"no": 2, "text": "보기 2번 내용"}, ...] 형식으로,
+    선택지(①②③④ 등)가 있으면 번호별로 분리하세요. 선택지가 없는 문제면 빈 배열 []로 두세요.
   "keywords": ["문제 내용을 대표하는 핵심 키워드", "..."],
   "has_illustration": true 또는 false. 판정 기준:
     - true: 문제 해결에 필요한 도형/그래프/표/지도/실험도/사료 등이 있는 경우
@@ -19,6 +23,12 @@ _FORMAT_INSTRUCTION = """
     {"x1_percent": 왼쪽 경계, "y1_percent": 위쪽 경계, "x2_percent": 오른쪽 경계, "y2_percent": 아래쪽 경계}
     has_illustration가 false면 이 필드는 null로 하세요.
 }
+
+[매우 중요 - passage_text와 options 작성 규칙]
+- 이미지에 보이는 원문 그대로 옮겨 적으세요. 철자, 띄어쓰기, 문장부호, 대소문자를 단 한 글자도
+  고치거나 요약하거나 다듬지 마세요. 절대 다시 쓰거나(재구성) 의역하지 마세요.
+- 이 두 필드는 나중에 원문과 글자 단위로 대조하는 데 쓰입니다. 조금이라도 다르게 옮기면
+  뒤 단계가 깨집니다.
 """
 
 
@@ -36,8 +46,12 @@ def extract_problem_info(cropped_img, x_percent, y_percent, stt_text=None):
     illustration_bbox는 나중에 파이프라인에서 삽화 부분만 따로 crop해서 2차 호출에 넘길 때
     쓰인다 (문제 전체를 다시 보내는 대신 삽화만).
 
-    반환: {"ocr_text": str, "keywords": [str, ...], "has_illustration": bool,
+    반환: {"ocr_text": str, "passage_text": str, "options": [{"no": int, "text": str}, ...],
+           "keywords": [str, ...], "has_illustration": bool,
            "illustration_bbox": {"x1_percent","y1_percent","x2_percent","y2_percent"} 또는 None}
+
+    passage_text/options는 영어 분기(english_explainer.py)에서 지문/보기를 분리해 토큰화하는 데
+    쓰인다. 국사과 분기는 ocr_text만 쓰므로 이 두 필드를 무시해도 무방하다(하위 호환).
     """
     ok, buf = cv2.imencode(".jpg", cropped_img)
     if not ok:
