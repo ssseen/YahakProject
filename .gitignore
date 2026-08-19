@@ -15,3 +15,11 @@ opencvtest/
 
 # 기타
 .DS_Store
+
+# data_pinecone (파인콘 데이터 파이프라인)
+data_pinecone/__pycache__/
+*.xlsx
+캐시/
+문제모음/
+이미지/
+.vscode/
