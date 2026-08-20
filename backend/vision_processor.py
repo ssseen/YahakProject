@@ -243,7 +243,10 @@ def _detect_vertical_lines(img, paper, canny_low=50, canny_high=150,
         return []
 
     segments = []
-    for x1, y1, x2, y2 in lines[:, 0]:
+    # cv2.HoughLinesP의 반환 shape은 OpenCV 버전에 따라 (N, 1, 4) 또는 (N, 4)로 달라진다.
+    # lines[:, 0]은 (N, 4)인 경우 각 행이 아니라 첫 열(x1 스칼라들)만 뽑아버려 언패킹이
+    # 깨지므로, reshape(-1, 4)로 두 shape 모두에서 항상 (N, 4)가 되도록 정규화한다.
+    for x1, y1, x2, y2 in lines.reshape(-1, 4):
         dx, dy = int(x2) - int(x1), int(y2) - int(y1)
         length = math.hypot(dx, dy)
         angle = abs(math.degrees(math.atan2(dy, dx)))
