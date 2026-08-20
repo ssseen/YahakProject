@@ -120,7 +120,7 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
                     "problem_type": str, "passage": {...}, "options": [...],
                     "translation": {...}, "explanation": str,
                     "answer": {"number": int|None, "text": str}, ...}
-      미지원 과목    {"status": "unsupported_subject", "과목": str, "message": str}
+      미지원 과목    {"status": "unsupported_subject", "subject": str, "message": str}
       재촬영 요청    {"status": "retake", "message": str}
         - 1차 호출이 ocr_text를 못 뽑았을 때(빈 문자열) 여기서 멈춘다. 손끝이 없어서 문제를
           특정 못 했거나, 손끝은 있는데 사진이 흐려 OCR 자체가 실패한 경우 등 - finger_detected
@@ -257,7 +257,7 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
     else:
         result = {
             "status": "unsupported_subject",
-            "과목": subject,
+            "subject": subject,
             "message": f"{subject} 분기는 아직 구현되지 않았습니다 (국어/사회/과학/영어만 지원)",
         }
 
