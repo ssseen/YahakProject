@@ -13,7 +13,7 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 _MODEL_CACHE = {}
 
 
-def get_model(name="gemini-2.5-flash", json_mode=False):
+def get_model(name="gemini-3.6-flash", json_mode=False):
     """모델 인스턴스를 (이름, json_mode)별로 캐싱해서 재사용한다."""
     key = (name, json_mode)
     if key not in _MODEL_CACHE:
