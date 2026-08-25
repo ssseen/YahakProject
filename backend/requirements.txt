@@ -8,3 +8,5 @@ numpy
 pillow
 python-multipart
 pinecone
+pytest
+easyocr

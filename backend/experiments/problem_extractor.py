@@ -1,6 +1,15 @@
 """
 2단계: 크롭된 이미지를 Gemini에 보내서 OCR 텍스트 / 키워드 / 삽화 유무를 뽑아낸다.
+
+v2 파이프라인 개편으로 pipeline.py는 더 이상 이 모듈(Gemini 1차 호출)을 쓰지 않는다.
+실행 안 되고 사라지는 게 아니라, EasyOCR 비교 실험(ocr_extractor.py, test_ocr_vs_gemini.py)의
+비교 대상으로 계속 쓰이므로 참고용으로 experiments/ 폴더에 남겨둔다.
 """
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # backend/ 루트 (gemini_config 등)
+
 import cv2
 
 from gemini_config import get_model, parse_json_response
