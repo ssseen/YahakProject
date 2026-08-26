@@ -12,7 +12,12 @@ from collections import Counter
 from dataclasses import dataclass
 
 THRESHOLD = 0.25
-SIMILAR_THRESHOLD = 0.70
+# select_similar는 점수 하한선을 두지 않는다 (2026-08-26 결정) - 1위(원본과 거의
+# 동일한 문항)를 건너뛰고 2위부터 쓰기로 한 뒤 실측해보니, 2위 점수가 0.55~0.65로
+# 편차가 커서 고정 임계값을 두면 "유사문제 없음"이 너무 자주 뜸. 정확도가 낮아도
+# 같은 브랜치의 2위를 무조건 보여주는 쪽을 택함 - 유사문제 노출은 정답 판정처럼
+# 틀리면 안 되는 기능이 아니라 "연습 삼아 풀어볼 문제"를 보여주는 것뿐이라
+# 감수할 만하다고 판단.
 
 BRANCH_OF = {
     "영어": "영어", "수학": "수학",
@@ -101,17 +106,23 @@ def decide_branch(matches, query_text: str) -> BranchResult:
 
 
 def select_similar(matches, branch: str, exclude_id=None) -> list:
-    out = []
+    """
+    branch에 속하는 항목 중 2위부터 최대 3건을 점수 하한선 없이 반환한다
+    (근거는 모듈 docstring의 SIMILAR_THRESHOLD 주석 참고).
+
+    1위(가장 높은 점수)는 건너뛴다 - 사진 찍은 문제 자체가 이미 Pinecone 인덱스에
+    같은(또는 표현만 살짝 다른 재수록) 문항으로 들어있는 경우가 많아서, 1위를 그대로
+    "유사문제"로 보여주면 방금 푼 문제가 그대로 다시 나오는 꼴이 된다(실측으로 확인됨 -
+    소스 문항을 exclude_id로 걸러낼 방법이 없는 상태에서는 1위가 사실상 자기 자신).
+    "연습용으로 다른 문제를 풀어보는" 기능 취지에 안 맞으므로, 2위부터를 후보로 쓴다.
+    """
+    eligible = []
     for m in matches:
         if exclude_id is not None and _match_id(m) == exclude_id:
             continue
         subj = _match_subject(m)
         if subj not in BRANCH_OF or BRANCH_OF[subj] != branch:
             continue
-        score = _match_score(m)
-        if score is None or score < SIMILAR_THRESHOLD:
-            continue
-        out.append(m)
-        if len(out) >= 3:
-            break
-    return out
+        eligible.append(m)
+
+    return eligible[1:4]

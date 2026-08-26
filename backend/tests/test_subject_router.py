@@ -53,7 +53,22 @@ def test_short_text_with_math_symbols_falls_back_to_math():
     assert result.guard == "math_fallback"
 
 
-def test_select_similar_below_threshold_returns_empty():
-    matches = _matches("영어", 0.6, 5)
+def test_select_similar_returns_low_score_second_place():
+    # 점수 하한선이 없으므로, 2위 점수가 낮아도(0.05) 그대로 반환돼야 한다.
+    matches = _matches("영어", 0.9, 1) + _matches("영어", 0.05, 1, "low")
+    result = select_similar(matches, "영어", exclude_id=None)
+    assert [m.id for m in result] == ["low0"]
+
+
+def test_select_similar_skips_top_rank():
+    # 1위(가장 높은 점수)는 사진 찍은 문제 자체(또는 재수록본)일 가능성이 높아서
+    # "유사문제 풀어보기"에는 부적절 - 2위부터 최대 3건을 반환해야 한다.
+    matches = _matches("영어", 0.9, 5)  # 입력 순서 = 점수 순위(m0이 1위)
+    result = select_similar(matches, "영어", exclude_id=None)
+    assert [m.id for m in result] == ["m1", "m2", "m3"]
+
+
+def test_select_similar_only_top_rank_eligible_returns_empty():
+    matches = _matches("영어", 0.9, 1)  # 1위 하나뿐, 2위가 없음
     result = select_similar(matches, "영어", exclude_id=None)
     assert result == []
