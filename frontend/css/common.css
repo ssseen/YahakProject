@@ -1,0 +1,338 @@
+@font-face {
+  font-family: 'NanumSquareRound';
+  src: url('../font/NanumSquareRoundR.ttf') format('truetype');
+  font-weight: 400;
+}
+@font-face {
+  font-family: 'NanumSquareRound';
+  src: url('../font/NanumSquareRoundB.ttf') format('truetype');
+  font-weight: 700;
+}
+@font-face {
+  font-family: 'NanumSquareRound';
+  src: url('../font/NanumSquareRoundEB.ttf') format('truetype');
+  font-weight: 800;
+}
+
+:root {
+  --color-bg: #FFFDFA;
+  --color-question-bg: #F5F5F5;
+  --color-explanation-bg: #EAF1F8;
+  --color-answer-bg: #93CC95;
+  --color-translation-bg: #EDEDED;
+  --color-neutral: #9C9C9C;
+  --color-math-accent: #3961C8;
+  --color-border: #D5DAE7;
+  --color-border-set: #ADBEEB;
+  --color-text: #000000;
+  --color-text-muted: #4B5563;
+
+  --radius-lg: 10px;
+  --radius-md: 5px;
+  --radius-sm: 3px;
+
+  --font-base: 'NanumSquareRound', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --font-weight-regular: 400;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  --font-size-scale: 1;
+
+  --header-height: 64px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+}
+
+html {
+    font-size: calc(20px * var(--font-size-scale));
+}
+
+body {
+  font-family: var(--font-base);
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#app {
+  min-height: 100vh;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 30px 0;
+  position: relative;
+  overflow-x: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  border: none;
+  cursor: pointer;
+  background: none;
+}
+
+/* ===== 공통 컴포넌트 ===== */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 16px 24px;
+  border-radius: var(--radius-md);
+  font-weight: var(--font-weight-bold);
+  transition: transform 0.15s ease;
+}
+
+.btn:active {
+  transform: scale(0.96);
+}
+
+.btn-primary {
+  background: var(--color-math-accent);
+  color: #fff;
+}
+
+.btn-secondary {
+  background: #fff;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+#retry-btn {
+  max-width: 312px;
+  border-radius: var(--radius-lg);
+  border-color: var(--color-border-set);
+  background: var(--color-explanation-bg);
+  font-weight: var(--font-weight-bold);
+  font-size: 1rem;
+}
+
+.icon-btn {
+  width: 80px;
+  height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+}
+.icon-btn img {
+  width: 100%;
+  height: auto; 
+}
+
+.icon-btn:active {
+  transform: scale(0.9);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* ===== 공통 키프레임 ===== */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+.shake {
+  animation: shake 0.4s ease;
+}
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  50% { transform: translateY(-6px); opacity: 1; }
+}
+.dot {
+  display: inline-block;
+  font-size: 1em;
+  font-weight: 800;
+  line-height: 0;
+  vertical-align: middle;
+  margin: 0 2px;
+  animation: dot-bounce 1.2s infinite ease-in-out;
+}
+.dot:nth-of-type(2) { animation-delay: 0.15s; }
+.dot:nth-of-type(3) { animation-delay: 0.3s; }
+ 
+/* 화면 전환 트랜지션 - router.js가 아래 클래스를 붙였다 뗌 */
+.page-enter-right {
+  animation: slide-in-right 0.28s ease forwards;
+}
+.page-enter-left {
+  animation: slide-in-left 0.28s ease forwards;
+}
+@keyframes slide-in-right {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes slide-in-left {
+  from { transform: translateX(-24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ===== 헤더 ===== */
+.app-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  height: var(--header-height);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  max-width: 360px;
+  margin: 0 auto;
+  background: var(--color-bg);
+}
+.app-header .back-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--font-weight-bold);
+}
+
+/* ===== 설정 모달 ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.modal-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+.modal-sheet {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  background: var(--color-bg);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 24px;
+  transform: translateY(100%);
+  transition: transform 0.25s ease;
+}
+.modal-overlay.open .modal-sheet {
+  transform: translateY(0);
+}
+
+/* ===== 설정 모달 내부 (글자 크기 / 읽어주는 속도) ===== */
+.sheet-handle {
+  width: 92px;
+  display: block;
+  margin: 0 auto 16px;
+}
+
+.modal-sheet h3 {
+  font-size: 0.7rem;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+.modal-sheet h3:not(:first-of-type) {
+  margin-top: 20px;
+}
+
+.option-row {
+  display: flex;
+  gap: 11px;
+  margin-bottom: 16px;
+  font-size: 0.6rem;
+}
+.font-size-option,
+.speech-rate-option {
+  height: 32px;
+  flex: 1;
+  padding: 0px 8px;
+  border: 0.5px solid var(--color-neutral);
+  border-radius: var(--radius-md);
+  background: #fff;
+  font-weight: var(--font-weight-regular);
+  color: var(--color-text);
+  transition: border-color 0.1s ease, background 0.1s ease;
+}
+.font-size-option.selected,
+.speech-rate-option.selected {
+  border-color: var(--color-border-set);
+  background: var(--color-explanation-bg);
+  color: var(--color-math-accent);
+}
+
+#test-speed-btn, #close-modal-btn {
+  margin-top: 12px;
+  width: 100%;
+  height: 36px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  gap: 7px;
+  border: 0.5px solid var(--color-neutral);
+  border-radius: var(--radius-sm);
+  background-color: #FFF;
+  color: var(--color-text);
+}
+
+#test-speed-btn img {
+  width: 21px;
+  height: 21px;
+}
+
+/* ===== 로딩/성공/에러 화면 공용 (사진, 음성 페이지가 같은 클래스명을 씀) ===== */
+.state-screen {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.camera-screen.state-screen,
+.voice-screen.state-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center; 
+  gap: 40px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.voice-screen.state-screen {
+  min-height: calc(100vh - 60px);
+}
+.state-screen .dot {
+  display: inline-block;
+}
+.spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid var(--color-border);
+  border-top-color: var(--color-math-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.result-icon {
+  width: 230px;
+  height: 230px;
+}
+
+.pre-line {
+  white-space: pre-line; /* \n을 실제 줄바꿈으로 표시 (백엔드가 \n 포함해서 문자열을 줄 때 필요) */
+}

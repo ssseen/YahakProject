@@ -1,0 +1,135 @@
+.camera-screen {
+  min-height: 100vh; /* margin -30px가 이미 #app의 위아래 패딩을 상쇄하므로 딱 100vh면 충분 */
+  margin: -30px 0;
+  background: #000;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  padding: 24px;
+  position: relative;
+  text-align: center;
+  overflow: hidden;
+}
+
+/* 실시간 카메라 영상 - 화면 전체를 배경처럼 채움, 나머지 요소는 그 위에 얹힘 */
+#camera-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+/* ===== 상단바 (뒤로가기 / 플래시) ===== */
+.camera-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+}
+.camera-back-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-weight: var(--font-weight-bold);
+}
+.camera-back-btn img {
+  width: 20px;
+  height: 20px;
+  filter: brightness(0) invert(1); /* 검은 배경 화면 전용 - 아이콘을 흰색으로 강제 변환 */
+}
+.camera-flash-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.camera-flash-btn img {
+  width: 24px;
+  height: 24px;
+}
+.camera-flash-btn.active img {
+  filter: drop-shadow(0 0 4px var(--color-math-accent));
+}
+
+.camera-instruction {
+  position: relative;
+  z-index: 1;
+  color: #fff;
+  font-weight: 300;
+}
+
+.camera-frame {
+  width: 300px;
+  height: 150px;
+  position: relative;
+  z-index: 1;
+}
+
+.corner {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-math-accent);
+}
+.corner-tl { top: 0; left: 0; border-right: none; border-bottom: none; animation: scan-pulse 2s ease-in-out infinite; }
+.corner-tr { top: 0; right: 0; border-left: none; border-bottom: none; animation: scan-pulse 2s ease-in-out infinite 0.15s; }
+.corner-bl { bottom: 0; left: 0; border-right: none; border-top: none; animation: scan-pulse 2s ease-in-out infinite 0.3s; }
+.corner-br { bottom: 0; right: 0; border-left: none; border-top: none; animation: scan-pulse 2s ease-in-out infinite 0.45s; }
+
+@keyframes scan-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.shutter-btn {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #fff;
+  border: 4px solid rgba(255, 255, 255, 0.4);
+  transition: transform 0.15s ease;
+}
+
+.shutter-btn:active {
+  transform: scale(0.9);
+}
+
+.camera-flash {
+  position: fixed;
+  inset: 0;
+  background: #fff;
+  animation: flash-fade 0.25s ease forwards;
+  pointer-events: none;
+}
+@keyframes flash-fade {
+  0% { opacity: 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* 카메라 화면 전용 문구 크기 */
+.loading-text {
+  font-size: 1rem;
+}
+.success-text {
+  font-size: 1.2rem;
+  font-weight: var(--font-weight-bold);
+}
+.error-text {
+  font-size: 1.2rem;
+}

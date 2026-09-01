@@ -1,0 +1,402 @@
+.solve-screen {
+  margin-top: -20px;
+  padding: var(--header-height) 0 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-x: hidden;
+}
+
+.solve-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: var(--font-weight-extrabold);
+  font-size: 1rem;
+  margin: 0 24px 8px;
+}
+.solve-header img {
+  width: 30px;
+  height: 30px;
+}
+
+.pre-line {
+  white-space: pre-line;
+}
+
+/* ===== 아코디언 (문제/지문) - 문제칸 색 ===== */
+.accordion {
+  background: #F5F5F5;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  margin: 0 24px;
+}
+/* 전체 해석 보기(영어 전용) - 해석칸 색으로 별도 구분 */
+.accordion.accordion-translation {
+  background: var(--color-translation-bg);
+}
+.accordion-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  padding: 16px;
+  font-weight: var(--font-weight-extrabold);
+  font-size: 0.7rem;
+}
+.accordion-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.accordion-title img {
+  width: 16px;
+  height: 16px;
+}
+.accordion-chevron {
+  width: 16px;
+  height: 16px;
+}
+
+.accordion-hint,
+.tap-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 16px;
+  color: #4B5563;
+  font-size: 0.6rem;
+}
+/* 보기 아래 힌트는 접기/펼치기 힌트보다 더 좌측·하단으로 */
+.tap-hint {
+  padding: 0 4px 0;
+  margin-top: 16px;
+}
+.accordion-hint img,
+.tap-hint img {
+  width: 20px;
+  height: 20px;
+}
+.accordion.open .accordion-hint {
+  display: none; /* 펼쳤을 때는 힌트 숨기고 실제 내용만 보이게 */
+}
+
+.accordion-body {
+  max-height: 0;
+  overflow: hidden;
+  padding: 0 16px;
+  transition: max-height 0.25s ease, padding 0.25s ease;
+  font-weight: var(--font-weight-regular);
+  font-size: 0.7rem;
+}
+.accordion.open .accordion-body {
+  max-height: 600px;
+  padding: 0 16px 16px;
+}
+
+.translation-heading {
+  font-weight: var(--font-weight-extrabold);
+  font-size: 0.7rem;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+.translation-heading:first-child {
+  margin-top: 0;
+}
+.choice-translation-list p {
+  font-weight: var(--font-weight-regular);
+  font-size: 0.7rem;
+  margin-bottom: 4px;
+}
+
+/* ===== 지문 안 클릭 가능한 단어 (뜻/발음 조회) ===== */
+.lookup-word {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  color: var(--color-math-accent);
+  cursor: pointer;
+}
+.lookup-word:active {
+  opacity: 0.6;
+}
+
+/* ===== 단어 팝업 시트 ===== */
+.word-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.word-popup-word {
+  font-weight: var(--font-weight-extrabold);
+  font-size: 0.8rem;
+}
+.word-popup-audio {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+.word-popup-audio img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.word-popup-meaning {
+  font-size: 0.8rem;
+  font-weight: var(--font-weight-bold);
+  margin-bottom: 16px;
+}
+
+#close-word-popup-btn {
+  width: flex;
+  height: 35px;
+  border-radius: 0.5 solid var(--color-neutral);
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-regular);
+}
+
+/* ===== 영어: 객관식 ===== */
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+.choice {
+  width: 308px;
+  height: 42px;
+  max-width: 100%;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #9C9C9C;
+  border-radius: 10px;
+  background: #fff;
+  font-weight: var(--font-weight-regular);
+  font-size: 0.7rem;
+  box-sizing: border-box;
+}
+.choice.correct {
+  border-color: var(--color-answer-bg);
+  background: rgba(147, 204, 149, 0.15);
+  font-weight: var(--font-weight-regular);
+}
+
+/* 문제/지문/풀이단계에 딸린 이미지 - 아코디언(또는 스텝)이 펼쳐졌을 때만 보임 */
+.passage-image-wrap {
+  margin-top: 16px;
+}
+.passage-image {
+  width: 300px;
+  height: 150px;
+  max-width: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  display: block;
+}
+
+/* 수학 전용: 문제 자체에 이미지가 있는 경우 - 테두리 있는 박스 (아코디언 펼쳤을 때만 보임) */
+.math-image-wrap {
+  margin-top: 16px;
+}
+.math-question-image {
+  width: 308px;
+  height: 150px;
+  max-width: 100%;
+  object-fit: cover;
+  display: block;
+  border: 0.5px solid #9C9C9C;
+  border-radius: 10px;
+}
+
+/* 수학 전용: 문제엔 이미지 없지만 그림 해설이 필요한 경우 - 문제와 풀이단계 사이에
+   항상 보이는 채로 뜨는 박스 (아코디언과 무관하게 상시 노출) */
+.math-explanation-image-box {
+  width: 310px;
+  height: 190px;
+  max-width: calc(100% - 48px); /* 좌우 24px씩 margin 감안 */
+  margin: 0 24px;
+  border: 0.5px solid #9C9C9C;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.math-explanation-image-box img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.step-image-wrap:empty {
+  display: none;
+}
+.step-image-wrap {
+  margin-bottom: 16px;
+}
+
+
+/* ===== 해설칸 색 ===== */
+.explanation-box {
+  background: var(--color-explanation-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin: 0 24px;
+}
+.explanation-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--font-weight-extrabold);
+  font-size: 0.7rem;
+  margin-bottom: 4px;
+}
+.explanation-label img {
+  width: 16px;
+  height: 16px;
+}
+.explanation-box p:last-child {
+  font-weight: var(--font-weight-regular);
+  font-size: 0.7rem;
+}
+
+/* ===== 수학: 풀이 스텝 ===== */
+.step-card {
+  background: #f2f2ee;
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  margin: 0 24px;
+}
+.step-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--font-weight-extrabold);
+  font-size: 0.7rem;
+  margin-bottom: 8px;
+}
+.step-label img {
+  width: 16px;
+  height: 16px;
+}
+.step-label #step-counter {
+  margin-left: auto;
+  color: var(--color-math-accent);
+}
+.step-label #step-counter.is-last {
+  color: inherit; /* 마지막 단계에서는 강조색 제거 */
+}
+.step-progress {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.step-dot {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border);
+}
+.step-dot.active {
+  background: var(--color-math-accent);
+}
+.step-text {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  min-height: 72px;
+  margin-bottom: 16px;
+  font-weight: var(--font-weight-regular);
+  font-size: 0.7rem;
+}
+.step-controls {
+  display: flex;
+  gap: 8px;
+}
+.step-controls .btn {
+  width: 145px;
+  height: 40px;
+  flex: 1;
+  font-size: 0.7rem;
+  border-width: 0.5px;
+}
+/* "다음" 버튼은 강조색 테두리+글씨, 마지막 단계에서는 원래 색(이전 버튼과 동일)으로 복귀 */
+#step-next {
+  border-color: var(--color-math-accent);
+  color: var(--color-math-accent);
+}
+#step-next.is-last {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+/* ===== 공통: 정답 박스 (마지막 단계에서만 공개) - 정답칸 색, 테두리 없음 ===== */
+.answer-box {
+  background: var(--color-answer-bg);
+  border-radius: var(--radius-lg);
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0 16px;
+  margin: 0 24px;
+  transition: max-height 0.35s ease, opacity 0.3s ease, padding 0.35s ease, margin-top 0.35s ease;
+}
+.answer-box.visible {
+  max-height: 200px;
+  opacity: 1;
+  padding: 12px 16px 6px;
+  margin-top: 10px;
+}
+.answer-box p:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--font-weight-regular);
+  font-size: 0.7rem;
+}
+.answer-box img {
+  width: 16px;
+  height: 16px;
+}
+.answer-value {
+  font-weight: var(--font-weight-extrabold);
+  font-size: 0.8rem;
+  margin-top: 4px;
+}
+
+/* ===== 하단 네비 ===== */
+.solve-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-width: 360px;
+  margin: 0 auto;
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: flex-end; /* 아이콘 크기가 달라도(24px/50px) 텍스트가 한 줄에 맞춰지게 */
+  justify-content: space-around;
+  padding: 8px 0 16px;
+}
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+}
+.nav-item img {
+  width: 24px;
+  height: 24px;
+}
+.nav-item-primary img {
+  width: 50px;
+  height: 50px;
+}

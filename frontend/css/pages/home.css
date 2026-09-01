@@ -1,0 +1,61 @@
+.home-screen {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 100px 0 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: relative;
+  text-align: center;
+}
+
+.how-to-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: none;
+  border: none;
+}
+.how-to-btn img {
+  display: block;
+  height: 43px;
+}
+
+.cat-main img {
+  width: 175px;
+  height: 175px;
+}
+
+.home-screen h1 {
+  font-size: 2.8rem;
+  margin-top: 16px;
+  font-weight: 800;
+}
+
+.subtitle {
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+.start-btn {
+  margin-top: 24px;
+  width: 303px;
+  max-width: 303px;
+  background: none;
+  padding: 0;
+  border: none;
+  border-radius: 15px; /* box-shadow가 이 모서리를 따라가서 파동이 이미지 모양에 맞춰짐 - start_btn.svg 실제 모서리 값 */
+  animation: start-glow 2.4s ease-in-out infinite;
+}
+.start-btn img {
+  display: block;
+  width: 100%;
+}
+
+@keyframes start-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(107, 127, 215, 0.45); }
+  50% { box-shadow: 0 0 0 10px rgba(107, 127, 215, 0); }
+}

@@ -1,0 +1,83 @@
+.voice-screen {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 100px;
+  padding: 0; /* 좌우 0 - 프레임 기준. 위아래 여백은 부모(#app)가 담당 */
+  overflow-x: hidden;
+  overflow-y: auto;
+  text-align: center;
+}
+/* 대기/녹음중 화면만 헤더가 뜨므로, 이 둘에만 고정 헤더만큼 상단 여백 추가
+   (로딩/성공/에러는 .state-screen이 붙어서 헤더가 없으니 제외) */
+.voice-screen:not(.state-screen) {
+  margin-top: -30px; /* #app의 기존 위쪽 패딩(30px) 상쇄 */
+  padding-top: var(--header-height);
+}
+
+.mic-btn {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%; /* ripple이 이 모서리를 따라가게 함 */
+  background: none;
+  padding: 0;
+  border: none;
+}
+
+.mic-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mic-btn .ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--color-math-accent);
+  animation: ripple 1.8s ease-out infinite;
+}
+@keyframes ripple {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.wave-bars {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 48px;
+}
+.wave-bar {
+  width: 6px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--color-math-accent);
+  transition: height 0.1s ease; /* 실시간 볼륨 값 변화를 부드럽게 이어줌 (JS가 height를 직접 조작) */
+}
+
+.stop-btn {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: none;
+  padding: 0;
+  border: none;
+}
+.stop-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.stop-btn:active {
+  transform: scale(0.92);
+}
+
+.voice-screen .link-btn {
+  margin-top: 32px;
+  text-decoration: underline;
+  font-weight: 700;
+}

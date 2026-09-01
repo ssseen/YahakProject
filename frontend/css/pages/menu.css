@@ -1,0 +1,46 @@
+.menu-screen {
+  margin-top: -10px; /* #app의 기존 위쪽 패딩(30px) 상쇄 - 헤더가 고정되면서 그 패딩은 더 이상 헤더 자리 역할을 안 함 */
+  padding: var(--header-height) 0 0; /* 상단: 고정 헤더 높이만큼만 정확히 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 15px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  text-align: center;
+}
+
+.cat-main-small img {
+  width: 110px;
+  height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-label {
+  margin-top: 15px;
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+#pick-photo-btn, #take-photo-btn {
+  width: 310px;
+}
+.img-btn {
+  background: none;
+  padding: 0;
+  border: none;
+}
+.img-btn img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.link-btn {
+  margin-top: 20px;
+  text-decoration: underline;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
