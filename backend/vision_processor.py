@@ -94,6 +94,51 @@ def _find_skin_mask(img, sat_min):
     return cv2.inRange(hsv, np.array([0, sat_min, 80]), np.array([20, 170, 255]))
 
 
+_MAX_PLAUSIBLE_FINGER_ELONGATION = 12.0
+
+
+def _elongation(contour):
+    """contour가 얼마나 '가늘고 길쭉한지'를 minAreaRect의 장변/단변 비율로 잰다."""
+    (_, _), (rw, rh), _ = cv2.minAreaRect(contour)
+    short_side = max(min(rw, rh), 1.0)
+    long_side = max(rw, rh)
+    return long_side / short_side
+
+
+def _select_finger_blob(cnts, h):
+    """
+    후보 윤곽선들 중 실제 손(손끝) 덩어리를 고른다.
+
+    100장 실측 검증(정확도검증test/)에서, 예전처럼 '면적이 가장 큰 덩어리'를 그대로
+    고르면 16%(100장 중 16장)에서 오검출됐다 - 종이를 무릎에 올려두고 찍은 사진 맨
+    아래 가장자리를 따라 생기는 얇고 넓은 노이즈 띠(피부색과 비슷한 옷/그림자 등)가
+    실제 손보다 면적이 커서 대신 뽑히는 패턴이었음.
+
+    1차 수정: 그 노이즈 띠가 elongation(가늘고 긴 정도) 13~24로 진짜 손(1.7~4.7)보다
+    훨씬 가늘고 길다는 걸 실측으로 확인해서, elongation이 비정상적으로 높은(12 초과)
+    후보는 제외하도록 함.
+
+    2차 수정: 그런데도 남는 케이스가 있었다 - 무릎을 덮은 바지가 아니라 맨살 종아리가
+    드러난 사진에서는, 종아리 살덩어리가 손과 비슷한 elongation·면적을 가져서 elongation
+    필터만으로는 못 걸러짐. 이 경우들을 다시 실측해보니 공통점: 잘못 고른 종아리
+    후보는 항상 진짜 손 후보보다 화면 아래쪽(y가 큼)에 있었다. 그래서 면적에 "위쪽에
+    있을수록 유리한" 가중치(position_weight)를 곱해서 점수를 매긴다 - 사람이 무릎 위
+    종이를 내려다보며 촬영하면 손은 항상 종아리보다 위(카메라에 더 가까운 쪽)에 있다는
+    전제. 손이 화면 맨 위에서 들어오는 경우는 이 데이터셋에 없었음 - 그런 촬영 각도가
+    생기면 이 가정이 깨질 수 있다는 건 알아둘 것.
+    """
+    plausible = [c for c in cnts if _elongation(c) <= _MAX_PLAUSIBLE_FINGER_ELONGATION]
+    candidates = plausible if plausible else cnts
+
+    def score(c):
+        area = cv2.contourArea(c)
+        top_y = cv2.boundingRect(c)[1]
+        position_weight = 1.0 - (top_y / h) * 1.3
+        return area * position_weight
+
+    return max(candidates, key=score)
+
+
 def find_finger_tip(img):
     """
     2단계: OpenCV로 검지 끝 좌표 추출 (종이-마스크 + 뾰족한 끝점).
@@ -101,7 +146,9 @@ def find_finger_tip(img):
     핵심 가정: '손가락 끝은 항상 흰 종이 위에 올라온다.'
       1) 흰 종이 영역을 먼저 찾는다.
       2) 살색이면서 종이 영역(약간 확장)에 들어온 부분만 = 손가락 (책상 제외).
-      3) 손가락 덩어리의 '무게중심에서 가장 멀리 뾰족하게 튀어나온 끝점' = 손끝.
+      3) 여러 덩어리가 후보로 잡히면 비정상적으로 가늘고 긴 것(노이즈)은 제외하고,
+         남은 것 중 면적이 가장 큰 것을 손가락으로 고른다 (_select_finger_blob 참고).
+      4) 손가락 덩어리의 '무게중심에서 가장 멀리 뾰족하게 튀어나온 끝점' = 손끝.
          (손가락 사이 골/옆선이 아니라 실제 손톱 끝을 잡기 위함)
 
     손가락이 없으면 (None, "손가락 없음") 반환 (에러 아님).
@@ -134,9 +181,9 @@ def find_finger_tip(img):
     if not cnts:
         return None, "손가락 없음"
 
-    largest = max(cnts, key=cv2.contourArea)
+    finger_blob = _select_finger_blob(cnts, h)
 
-    tip_x, tip_y = _find_pointed_tip(largest, paper)
+    tip_x, tip_y = _find_pointed_tip(finger_blob, paper)
     if tip_x is None:
         return None, "손가락 없음"
 
