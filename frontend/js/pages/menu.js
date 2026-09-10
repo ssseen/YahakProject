@@ -9,13 +9,13 @@ export function renderMenu(container) {
       </div>
 
       <p class="menu-label">미리 찍어둔 사진을 가져와요.</p>
-      <button class="img-btn" id="pick-photo-btn" type="button" aria-label="문제 사진 가져오기">
-        <img src="image/photo_import_btn.svg" alt="문제 사진 가져오기" />
+      <button id="pick-photo-btn" type="button" aria-label="문제 사진 가져오기">
+        문제 사진 가져오기
       </button>
 
       <p class="menu-label">문제 사진을 지금 찍어요.</p>
-      <button class="img-btn" id="take-photo-btn" type="button" aria-label="문제 사진 찍기">
-        <img src="image/photo_capture_btn.svg" alt="문제 사진 찍기" />
+      <button id="take-photo-btn" type="button" aria-label="문제 사진 찍기">
+        문제 사진 찍기
       </button>
 
       <button class="link-btn" id="how-to-btn" type="button" aria-label="사용방법 보기">사용방법 보기</button>

@@ -2,20 +2,6 @@ import { navigate } from '../router.js';
 import { getState, resetQuestionFlow } from '../state.js';
 import { openWordPopup } from '../components/word-popup.js';
 
-// 백엔드 응답 구조 (API 명세 기준):
-// - status: "success" | "retake" | "unsupported_subject" | "error"
-// - success일 때 type: "guksagwa"(국어/사회/과학) | "english"(영어)
-// - 공통: subject, problem_type, explanation, answer{number,text}, illustration,
-//         has_illustration, finger_detected
-// - guksagwa 전용: problem_text (원문 전체, 보기 포함, \n 포함)
-// - english 전용: passage{text,tokens}, options[{no,text,tokens}], translation{passage,options}
-//   tokens: [{text, meaning}] - meaning이 있으면 클릭 가능한 단어, null이면 그냥 텍스트
-//
-// retake/unsupported_subject/error 상태는 photo-processing.js에서 이미 처리해서
-// 여기(solve.js)까지는 항상 success 데이터만 들어온다.
-
-// TODO: 백엔드 연동 전까지 화면 확인용 mock. 실제로는 state.question이 photo-processing.js의
-// uploadPhoto()가 저장한 백엔드 응답으로 채워진다.
 const MOCK = {
   status: 'success',
   type: 'english',
@@ -57,8 +43,6 @@ const MOCK = {
   illustration_bbox: null,
 };
 
-// 토큰 배열(text+meaning 쌍)을 실제 HTML로 조립. meaning이 있는 토큰만 클릭 가능하게 만듦.
-// white-space:pre-line으로 감싸서 토큰 안의 \n이 실제 줄바꿈으로 보이게 함 (백엔드 명세 필수사항)
 function assembleTokens(tokens) {
   if (!tokens || tokens.length === 0) return '';
   return tokens
@@ -79,7 +63,6 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// 정답 표시 - number가 null이면 번호 없이 텍스트만 (배지 그리지 말 것, 명세 §5 참고)
 const CIRCLED = ['①', '②', '③', '④', '⑤'];
 function formatAnswer(answer) {
   if (!answer) return '불러오는 중입니다.';
@@ -89,7 +72,6 @@ function formatAnswer(answer) {
   return answer.text || '불러오는 중입니다.';
 }
 
-// 삽화 이미지 (330x150 고정 PNG, has_illustration이어도 null일 수 있음 - 명세 §5)
 function renderIllustration(illustration) {
   if (!illustration) return '';
   return `
@@ -116,8 +98,9 @@ export function renderSolve(container) {
         <button class="nav-item" id="nav-home" type="button">
           <img src="image/home_btn.svg" alt="" aria-hidden="true" /><span>처음으로</span>
         </button>
-        <button class="nav-item nav-item-primary" id="nav-more" type="button">
-          <img src="image/solution_mic_btn.svg" alt="" aria-hidden="true" /><span>더 궁금해요</span>
+        <button class="nav-item" id="nav-play-toggle" type="button">
+          <img src="image/play_btn.png" alt="" aria-hidden="true" id="play-icon" />
+          <span id="play-text">음성 재생</span>
         </button>
         <button class="nav-item" id="nav-replay" type="button">
           <img src="image/replay_btn.svg" alt="" aria-hidden="true" /><span>다시 듣기</span>
@@ -126,7 +109,6 @@ export function renderSolve(container) {
     </section>
   `;
 
-  // 아코디언 열고닫기 + 화살표(hide/view) 아이콘 교체
   container.querySelectorAll('.accordion').forEach((acc) => {
     const toggle = acc.querySelector('.accordion-toggle');
     const chevron = acc.querySelector('.accordion-chevron');
@@ -136,7 +118,6 @@ export function renderSolve(container) {
     });
   });
 
-  // 지문/보기 안 클릭 가능한 단어 - 누르면 하단에 뜻+발음 팝업
   container.querySelectorAll('.lookup-word').forEach((el) => {
     el.addEventListener('click', () => {
       openWordPopup({ word: el.dataset.word, meaning: el.dataset.meaning });
@@ -147,15 +128,30 @@ export function renderSolve(container) {
     resetQuestionFlow();
     navigate('/');
   });
-  container.querySelector('#nav-more').addEventListener('click', () => navigate('/voice'));
+
+  const playToggleBtn = container.querySelector('#nav-play-toggle');
+  const playIcon = container.querySelector('#play-icon');
+  const playText = container.querySelector('#play-text');
+  let isPlaying = false; 
+
+  playToggleBtn.addEventListener('click', () => {
+    isPlaying = !isPlaying; 
+    if (isPlaying) {
+      playIcon.src = 'image/pause_btn.png';
+      playText.textContent = '일시 정지';
+      console.log('음성 재생 시작');
+    } else {
+      playIcon.src = 'image/play_btn.png';
+      playText.textContent = '음성 재생';
+      console.log('음성 일시 정지');
+    }
+  });
+
   container.querySelector('#nav-replay').addEventListener('click', () => {
-    // TODO: 마지막 해설 TTS 다시 재생
     console.log('다시 듣기');
   });
 }
 
-// ============ 국어/사회/과학 ============
-// 문제(원문 전체, 보기 포함) → 문제해설 → 정답. 단어 팝업/번역 없음 (명세 §6).
 function renderGuksagwa(data) {
   return `
     <div class="accordion open">
@@ -182,8 +178,6 @@ function renderGuksagwa(data) {
   `;
 }
 
-// ============ 영어 ============
-// 문제(지문+보기, 토큰 기반 단어팝업) → 전체해석보기 → 문제해설 → 정답 (명세 §7).
 function renderEnglish(data) {
   const hasOptions = data.options && data.options.length > 0;
   const hasTranslation = data.translation && (data.translation.passage || (data.translation.options && data.translation.options.length > 0));
@@ -246,7 +240,6 @@ function renderEnglish(data) {
   `;
 }
 
-// 아코디언(문제/전체해석보기) 접혔을 때만 보이는 힌트 문구
 function renderAccordionHint() {
   return `
     <p class="accordion-hint">
