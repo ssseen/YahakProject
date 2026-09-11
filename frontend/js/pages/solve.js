@@ -158,8 +158,7 @@ export function renderSolve(container) {
 
   // 비슷한 문제 풀어보기 클릭 이벤트
   container.querySelector('#btn-similar').addEventListener('click', () => {
-    console.log('비슷한 문제 풀어보기 클릭됨');
-    // 추후 비슷한 문제 페이지로 이동하는 navigate('/...') 코드를 여기에 작성하시면 됩니다!
+    navigate('/practice'); // 페이지 이동!
   });
 }
 function renderGuksagwa(data) {

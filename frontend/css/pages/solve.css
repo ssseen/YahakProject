@@ -167,10 +167,10 @@
   margin-top: 16px;
 }
 .choice {
-  width: 308px;
-  height: 42px;
-  max-width: 100%;
-  padding: 0 5px;
+  width: 100%;
+  min-height: 42px;
+  height: auto;
+  padding: 10px 12px;
   display: flex;
   align-items: center;
   border: 1px solid #9C9C9C;
@@ -179,13 +179,20 @@
   font-weight: var(--font-weight-regular);
   font-size: 0.7rem;
   box-sizing: border-box;
+  cursor: pointer; /* 마우스 올렸을 때 손가락 모양으로 변경 */
+  line-height: 1.4; /* 줄 간격을 넓혀서 위아래로 글자가 터지지 않게 보호 */
+  word-break: keep-all; /* 단어가 중간에 쪼개져서 줄바꿈되지 않게 보호 */
 }
 .choice.correct {
   border-color: var(--color-answer-bg);
   background: rgba(147, 204, 149, 0.15);
   font-weight: var(--font-weight-regular);
 }
-
+.choice.incorrect {
+  border-color: #E57373;
+  background: rgba(229, 115, 115, 0.15);
+  font-weight: var(--font-weight-regular);
+}
 /* 문제/지문/풀이단계에 딸린 이미지 - 아코디언(또는 스텝)이 펼쳐졌을 때만 보임 */
 .passage-image-wrap {
   margin-top: 16px;
