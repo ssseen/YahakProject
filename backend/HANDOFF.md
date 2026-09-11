@@ -2,7 +2,9 @@
 
 **이 파일은 새 컴퓨터에서 클로드 코드(또는 사람)가 맥락을 잡기 위한 문서다.**
 작성일: 2026-08-26. 2026-09-09 세션에서 P1(손끝 검출) 정확도 실측 검증 내용을
-추가함(5번 섹션 4항, 8번 섹션 신설) — 이 시점까지 진행 상황을 전부 담았다.
+추가함(5번 섹션 4항, 8번 섹션 신설). 2026-09-11 세션에서 파인콘 인덱스 재업로드에
+맞춰 유사문제 이미지/question·choices 분리 반영함(7번 섹션) — 이 시점까지 진행
+상황을 전부 담았다.
 
 새 컴퓨터에서 작업을 이어갈 클로드에게: 이 문서를 먼저 전체를 읽고 시작할 것. 여기
 적힌 결정들(임계값, 옵션 켬/끔 등)은 전부 실측 검증을 거쳐 확정된 것이니 다시 묻지
@@ -204,22 +206,20 @@ v1(예전)은 Gemini를 두 번(OCR용 1차 + 해설용 2차) 불렀는데, v2�
 
 ## 6. 대기 중인 것
 
-- **유사문제 풀어보기용 question/options 분리** — 프론트에 "유사문제 풀어보기"(사용자가
-  답 고르고 채점받는 새 페이지) 기능이 추가될 예정. 지금 `similar_questions[].text`는
-  지문+보기가 한 줄글로 뭉쳐 나와서(예: `"...것은? \nKate is good at skating...
-  \n① are || ② does || ③ isn't || ④ don't"`) 화면에서 답을 고르게 만들기 어렵다.
-  **Pinecone 데이터 담당자가 인덱스 자체를 분리된 필드로 재업로드해주기로 함** —
-  백엔드에서 지금 파싱 코드를 만들지 않고 대기 중(2026-08-26 결정). 데이터가 바뀌면
-  `pipeline.py`의 `_format_similar_questions()`를 새 필드명에 맞게 고치면 됨.
+(2026-09-11 기준 없음 - 아래 있던 유사문제 question/options 분리 + 이미지 항목은
+파인콘 데이터 담당자가 인덱스를 재업로드해서 해결됨, 7번 섹션 참고)
 
 ## 7. 알려진 한계
 
-- **Pinecone 인덱스에 이미지 없음** — 원본 명세서엔 "인덱스에 이미지 포함"이라고
-  적혀있었으나 틀린 정보였음. 실제 메타데이터 키는 `answer, category_large,
-  category_mid, exam_round, exam_type, explanation, original_id, question_number,
-  subject, text, year`뿐이고 순수 텍스트만 있다. 그래서 "유사문제 풀어보기"는 텍스트로만
-  보여줄 수 있다. 실제 문제 사진까지 보여주려면 `data_pinecone`(데이터 구축 파이프라인)
-  쪽에서 이미지를 인덱스에 새로 추가해야 함 — 백엔드에서 할 수 있는 일이 아님.
+- ~~Pinecone 인덱스에 이미지 없음~~ **2026-09-11 해결됨** — 파인콘 데이터 담당자가
+  인덱스를 재업로드해서 메타데이터에 `has_image`("1"/"0" 문자열), `image_path`
+  (이미지 있으면 URL, 없으면 빈 문자열)가 추가됨. 동시에 `question`(지문만)/
+  `choices`(보기만)도 추가되어 "유사문제 풀어보기" 화면에서 `text`(지문+보기 뭉친
+  문자열)를 직접 파싱할 필요가 없어짐. `pipeline.py`의 `_format_similar_questions()`
+  를 새 필드에 맞게 수정 완료, `tests/test_pipeline.py`로 필드 매핑 검증함
+  (`has_image` 문자열→boolean 변환, 필드 누락 시 기본값 등). `image_path`는
+  `https://raw.githubusercontent.com/ssseen/yahak_data/main/...` 형태의 GitHub raw
+  URL - 프론트가 바로 `<img src>`로 쓸 수 있음.
 - **수학 미지원** — `subject_router`가 "수학"으로 판정하면 `unsupported_subject`만
   반환. 해설 생성기 자체가 없음.
 - **`locate_confidence: "low"`인 경우 정확도 하락 가능** — 손끝이 애매한 위치(문항

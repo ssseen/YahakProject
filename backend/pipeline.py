@@ -159,6 +159,20 @@ def _category_hint_for_branch(matches, branch):
 
 
 def _format_similar_questions(matches):
+    """
+    Pinecone hit -> 프론트에 내려줄 유사문제 형태로 변환.
+
+    2026-09-11 파인콘 데이터 담당자가 인덱스를 재업로드하면서 스키마가 바뀜
+    (HANDOFF.md 6번 섹션 "대기 중" 항목이 이걸로 해결됨):
+      - `text`(지문+보기가 한 덩어리로 뭉친 문자열)는 그대로 유지되고,
+        `question`(지문만)/`choices`(보기만)가 새로 추가됨 - "유사문제 풀어보기"
+        화면에서 보기를 따로따로 보여주려면 이제 text를 직접 파싱할 필요 없이
+        이 두 필드를 쓰면 됨.
+      - `has_image`/`image_path`가 새로 추가됨. `has_image`는 Pinecone엔 문자열
+        "1"/"0"으로 들어있어서(메타데이터가 문자열만 지원하는 제약으로 추정) 여기서
+        boolean으로 변환해서 내려준다. `image_path`는 이미지 없으면 빈 문자열로
+        들어오므로 그대로 통과시킨다(프론트에서 falsy 체크 가능).
+    """
     out = []
     for m in matches:
         fields = getattr(m, "fields", None) or {}
@@ -166,8 +180,12 @@ def _format_similar_questions(matches):
             "id": getattr(m, "id", None),
             "score": getattr(m, "score", None),
             "text": fields.get("text", ""),
+            "question": fields.get("question", ""),
+            "choices": fields.get("choices", ""),
             "answer": fields.get("answer"),
             "explanation": fields.get("explanation", ""),
+            "has_image": fields.get("has_image") == "1",
+            "image_path": fields.get("image_path", ""),
             "year": fields.get("year"),
             "exam_round": fields.get("exam_round"),
             "question_number": fields.get("question_number"),
