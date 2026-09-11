@@ -396,3 +396,21 @@
   width: 24px;
   height: 24px;
 }
+.btn-similar-problem {
+  width: 330px;
+  height: 70px;
+  border-radius: 10px;
+  background-color: #5A81E5;
+  color: #FFFFFF;
+  font-size: 1rem;
+  font-weight: var(--font-weight-extrabold); /* 폰트를 조금 두껍게 */
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 10px auto 0; /* 가운데 정렬 및 위쪽 여백 */
+  cursor: pointer;
+}
+.btn-similar-problem:active {
+  opacity: 0.8;
+}

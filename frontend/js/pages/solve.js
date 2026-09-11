@@ -94,6 +94,11 @@ export function renderSolve(container) {
 
       ${data.type === 'english' ? renderEnglish(data) : renderGuksagwa(data)}
 
+      <!-- 비슷한 문제 풀어보기 버튼 추가 -->
+      <button type="button" class="btn-similar-problem" id="btn-similar">
+        비슷한 문제 풀어보기
+      </button>
+
       <nav class="solve-nav">
         <button class="nav-item" id="nav-home" type="button">
           <img src="image/home_btn.svg" alt="" aria-hidden="true" /><span>처음으로</span>
@@ -150,8 +155,13 @@ export function renderSolve(container) {
   container.querySelector('#nav-replay').addEventListener('click', () => {
     console.log('다시 듣기');
   });
-}
 
+  // 비슷한 문제 풀어보기 클릭 이벤트
+  container.querySelector('#btn-similar').addEventListener('click', () => {
+    console.log('비슷한 문제 풀어보기 클릭됨');
+    // 추후 비슷한 문제 페이지로 이동하는 navigate('/...') 코드를 여기에 작성하시면 됩니다!
+  });
+}
 function renderGuksagwa(data) {
   return `
     <div class="accordion open">
