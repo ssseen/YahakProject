@@ -2,9 +2,6 @@ import { navigate } from '../router.js';
 import { setState } from '../state.js';
 import { renderHeader } from '../components/header.js';
 
-// 디버그용: 주소창에 #/voice?step=recognizing (또는 understanding / error / recording)를
-// 직접 입력하면 해당 화면으로 바로 진입해서 자동 타이머 없이 그 자리에 멈춰있는다.
-// 예: index.html#/voice?step=understanding
 const DEBUG_STEPS = ['ready', 'recording', 'recognizing', 'understanding', 'error'];
 
 function getDebugStep() {
@@ -14,9 +11,8 @@ function getDebugStep() {
 }
 
 export function renderVoiceProcessing(container) {
-  let step = getDebugStep() || 'ready'; // 'ready' | 'recording' | 'recognizing' | 'understanding' | 'error'
+  let step = getDebugStep() || 'ready'; 
 
-  // 마이크 녹음 관련 상태 - 화면 벗어나거나 녹음 끝나면 반드시 정리해야 함
   let stream = null;
   let mediaRecorder = null;
   let audioChunks = [];
@@ -32,7 +28,6 @@ export function renderVoiceProcessing(container) {
     else renderError();
   }
 
-  // 마이크 스트림 + 오디오 분석기 + 녹음기를 전부 정리하는 헬퍼
   function stopAudioStream() {
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
@@ -74,9 +69,9 @@ export function renderVoiceProcessing(container) {
 
   async function startRecording() {
     try {
+      // 1. 마이크 접근 권한 요청[cite: 6]
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
-      // 마이크 권한 거부 / 마이크 없음 등 - 바로 에러 화면으로
       console.error('마이크 접근 실패:', err);
       step = 'error';
       render();
@@ -85,15 +80,20 @@ export function renderVoiceProcessing(container) {
 
     audioChunks = [];
     mediaRecorder = new MediaRecorder(stream);
+    
+    // 2. 녹음 중일 때 소리 조각 수집[cite: 6]
     mediaRecorder.addEventListener('dataavailable', (e) => {
       if (e.data.size > 0) audioChunks.push(e.data);
     });
+    
+    // 3. 녹음 종료 시 실행 로직[cite: 6]
     mediaRecorder.addEventListener('stop', () => {
       const blob = new Blob(audioChunks, { type: 'audio/webm' });
       step = 'recognizing';
       render();
       uploadVoice(blob);
     });
+    
     mediaRecorder.start();
 
     step = 'recording';
@@ -101,7 +101,6 @@ export function renderVoiceProcessing(container) {
     startVolumeMeter();
   }
 
-  // Web Audio API로 마이크 실시간 볼륨을 뽑아서 .wave-bar 높이에 매핑
   function startVolumeMeter() {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = audioContext.createMediaStreamSource(stream);
@@ -114,14 +113,12 @@ export function renderVoiceProcessing(container) {
 
     function tick() {
       analyser.getByteFrequencyData(dataArray);
-      // 전체 평균 볼륨(0~255)을 0~1로 정규화
       const average = dataArray.reduce((sum, v) => sum + v, 0) / dataArray.length;
       const level = Math.min(average / 128, 1);
 
       bars.forEach((bar, i) => {
-        // 막대마다 살짝 다른 배율을 줘서 획일적이지 않고 자연스럽게 움직이게 함
         const variance = 0.7 + (i % 3) * 0.15;
-        const height = 12 + level * 32 * variance; // 최소 12px ~ 최대 약 44px
+        const height = 12 + level * 32 * variance; 
         bar.style.height = `${height}px`;
       });
 
@@ -148,30 +145,28 @@ export function renderVoiceProcessing(container) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
       }
-      stream.getTracks().forEach((track) => track.stop()); // 마이크는 바로 꺼줌
+      mediaRecorder.stop(); // 녹음 중지 시 자동으로 onstop 로직 실행[cite: 6]
+      stream.getTracks().forEach((track) => track.stop());
       stream = null;
       if (audioContext) {
         audioContext.close();
         audioContext = null;
       }
-      mediaRecorder.stop(); // 'stop' 이벤트 리스너가 알아서 recognizing으로 넘겨줌
     });
   }
 
-  // 로딩/성공/에러(state-screen) 3개 화면은 잠시 뜨고 넘어가는 화면이라
-  // 뒤로가기가 필요 없어서, 공용 헤더를 자체적으로 숨긴다.
   function hideHeader() {
     const headerRoot = document.getElementById('header-root');
     if (headerRoot) headerRoot.innerHTML = '';
   }
-  // 대기/녹음중 화면으로 돌아올 땐(예: 에러 후 재시도) 헤더를 다시 붙인다.
+
   function showHeader() {
     const headerRoot = document.getElementById('header-root');
     if (headerRoot) {
       headerRoot.innerHTML = '';
       headerRoot.appendChild(renderHeader({
         onBack: () => {
-          stopAudioStream(); // 녹음 중에 뒤로가기 눌러도 마이크는 반드시 꺼줌
+          stopAudioStream();
           window.history.back();
         },
       }));
@@ -189,11 +184,15 @@ export function renderVoiceProcessing(container) {
   }
 
   async function uploadVoice(blob) {
+    // 백엔드로 보낼 FormData 조립[cite: 6]
     const formData = new FormData();
     formData.append('audio_file', blob, 'record.webm');
 
+    console.log("🚀 서버로 음성 파일 배달 시작!"); //[cite: 6]
+
     let res;
     try {
+      // API 전송[cite: 6]
       res = await fetch('http://localhost:8000/transcribe', {
         method: 'POST',
         body: formData,
@@ -212,7 +211,10 @@ export function renderVoiceProcessing(container) {
       return;
     }
 
+    // 결과 수신[cite: 6]
     const result = await res.json();
+    console.log("🎯 변환된 사투리 텍스트:", result.text); //[cite: 6]
+    
     setState({ voiceQuestionText: result.text });
     navigate('/solve');
   }
@@ -225,19 +227,6 @@ export function renderVoiceProcessing(container) {
         <div class="spinner" aria-hidden="true"></div>
       </section>
     `;
-  }
-
-  function fakeUnderstand() {
-    setTimeout(() => {
-      const ok = true; // TODO: 실제 STT/이해 API 응답으로 대체
-      if (ok) {
-        setState({ voiceQuestionText: '(인식된 질문 텍스트)' });
-        navigate('/solve');
-      } else {
-        step = 'error';
-        render();
-      }
-    }, 1200);
   }
 
   function renderError() {

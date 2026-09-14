@@ -9,13 +9,14 @@ export function renderHeader({ onBack }) {
       뒤로 가기
     </button>
     
-    <button class="icon-btn" type="button" aria-label="설정">
-      <img src="image/setting_btn.svg" alt="" aria-hidden="true" />
+    <button class="settings-btn" type="button" aria-label="설정">
+      <img src="image/setting.png" alt="" aria-hidden="true" />
+      설정
     </button>
   `;
 
   header.querySelector('.back-btn').addEventListener('click', onBack);
-  header.querySelector('.icon-btn').addEventListener('click', openSettingsModal);
+  header.querySelector('.settings-btn').addEventListener('click', openSettingsModal);
 
   return header;
 }

@@ -16,12 +16,26 @@
   position: absolute;
   top: 20px;
   right: 20px;
-  background: none;
-  border: none;
+  width: 128px;
+  height: 43px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: 30px;
+  background-color: #5A81E5;
+  border: 1px solid #DBDFE4;
+  box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25);
+  color: #FFFFFF;
+  font-size: 1rem;
+  font-family: inherit;
+  cursor: pointer;
 }
+
 .how-to-btn img {
   display: block;
-  height: 43px;
+  height: 20px; /* 아이콘 크기 (비율에 맞게 조정 가능) */
+  width: auto;
 }
 
 .cat-main img {
@@ -44,18 +58,36 @@
   margin-top: 24px;
   width: 303px;
   max-width: 303px;
-  background: none;
-  padding: 0;
-  border: none;
-  border-radius: 15px; /* box-shadow가 이 모서리를 따라가서 파동이 이미지 모양에 맞춰짐 - start_btn.svg 실제 모서리 값 */
+  height: 77px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 15px;
+  background-color: #5A81E5;
+  border: 1px solid #DBDFE4;
+  box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25);
+  color: #FFFFFF;
+  font-size: 1.6rem;
+  font-weight: bold;
+  font-family: inherit;
+  cursor: pointer;
   animation: start-glow 2.4s ease-in-out infinite;
 }
+
 .start-btn img {
   display: block;
-  width: 100%;
+  height: 24px; /* 아이콘 크기 (비율에 맞게 조정 가능) */
+  width: auto;
 }
 
+/* --- 버튼 애니메이션 --- */
 @keyframes start-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(107, 127, 215, 0.45); }
-  50% { box-shadow: 0 0 0 10px rgba(107, 127, 215, 0); }
+  0%, 100% { 
+    /* 기본 그림자 유지 + 애니메이션 효과 */
+    box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25), 0 0 0 0 rgba(107, 127, 215, 0.45); 
+  }
+  50% { 
+    box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25), 0 0 0 10px rgba(107, 127, 215, 0); 
+  }
 }

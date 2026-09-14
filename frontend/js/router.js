@@ -4,6 +4,7 @@ import { renderPhotoProcessing } from './pages/photo-processing.js';
 import { renderVoiceProcessing } from './pages/voice-processing.js';
 import { renderSolve } from './pages/solve.js';
 import { renderHeader } from './components/header.js';
+import { renderPractice } from './pages/practice.js';
 
 // 경로별 렌더 함수 + 헤더 표시 여부 + css 파일명
 const routes = {
@@ -12,6 +13,7 @@ const routes = {
   '/camera': { render: renderPhotoProcessing, css: 'camera', showHeader: false },
   '/voice': { render: renderVoiceProcessing, css: 'voice', showHeader: true },
   '/solve': { render: renderSolve, css: 'solve', showHeader: true },
+  '/practice': { render: renderPractice, css: 'solve', showHeader: true },
 };
 
 // 뒤로가기 판단을 위한 경로 순서 (숫자가 클수록 "더 깊은" 화면)
