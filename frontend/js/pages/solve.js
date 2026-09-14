@@ -53,7 +53,7 @@ export function renderSolve(container) {
     return;
   }
 
-  container.innerHTML = `
+container.innerHTML = `
     <section class="solve-screen">
       <div class="solve-header">
         <img src="image/smile_icon.svg" alt="" aria-hidden="true" />
@@ -62,7 +62,33 @@ export function renderSolve(container) {
 
       ${data.type === 'english' ? renderEnglish(data) : renderGuksagwa(data)}
       
-      <!-- (이하 기존 네비게이션 버튼 코드 동일) -->
+      <button type="button" class="btn-similar-problem" id="btn-similar">
+        비슷한 문제 풀어보기
+      </button>
+
+      <!-- 복구된 하단 네비게이션 바 -->
+      <div class="bottom-nav-bar" style="display: flex; justify-content: space-around; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee;">
+        <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
+          <img src="image/home_icon.svg" alt="" style="width: 24px; height: 24px;" />
+          <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
+        </button>
+        
+        <button id="nav-voice" onclick="window.location.hash='#/voice'" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
+          <img src="image/voice_icon.svg" alt="" style="width: 24px; height: 24px;" />
+          <span style="font-size: 0.8rem; margin-top: 4px;">더 궁금해요</span>
+        </button>
+
+        <button id="nav-play-toggle" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
+          <img id="play-icon" src="image/play_btn.png" alt="" style="width: 24px; height: 24px;" />
+          <span id="play-text" style="font-size: 0.8rem; margin-top: 4px;">음성 재생</span>
+        </button>
+
+        <button id="nav-replay" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
+          <img src="image/replay_icon.svg" alt="" style="width: 24px; height: 24px;" />
+          <span style="font-size: 0.8rem; margin-top: 4px;">다시 듣기</span>
+        </button>
+      </div>
+    </section>
   `;
 
   container.querySelectorAll('.accordion').forEach((acc) => {
