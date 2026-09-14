@@ -69,12 +69,12 @@ container.innerHTML = `
       <!-- 복구된 하단 네비게이션 바 -->
       <div class="bottom-nav-bar" style="display: flex; justify-content: space-around; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee;">
         <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
-          <img src="image/home_icon.svg" alt="" style="width: 24px; height: 24px;" />
+          <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
           <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
         </button>
         
         <button id="nav-voice" onclick="window.location.hash='#/voice'" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
-          <img src="image/voice_icon.svg" alt="" style="width: 24px; height: 24px;" />
+          <img src="image/mic_btn.svg" alt="" style="width: 24px; height: 24px;" />
           <span style="font-size: 0.8rem; margin-top: 4px;">더 궁금해요</span>
         </button>
 
@@ -84,7 +84,7 @@ container.innerHTML = `
         </button>
 
         <button id="nav-replay" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
-          <img src="image/replay_icon.svg" alt="" style="width: 24px; height: 24px;" />
+          <img src="image/replay_btn.svg" alt="" style="width: 24px; height: 24px;" />
           <span style="font-size: 0.8rem; margin-top: 4px;">다시 듣기</span>
         </button>
       </div>
