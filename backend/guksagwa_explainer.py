@@ -15,6 +15,18 @@
   계약, 이름 유지)과는 다른 층이므로, 그 매핑은 pipeline.py 쪽에서 explanation_text를 읽어
   "explanation"으로 옮겨 담는 식으로 처리한다 (pipeline.py 주석 참고).
 - question_number(자가 검증용), subject_mismatch(과목 불일치 시 조기 반환)를 추가했다.
+
+[problem_text 출처 변경 - 2026-09-14]
+원래 화면에 뜨는 "문제" 텍스트(pipeline.py의 problem_text)는 question_locator가 잘라준
+OCR 텍스트(locate_result.query_text)를 그대로 썼다. english_explainer.py와 같은 이유로
+실사용 중 깨짐을 확인함(예: 화학 반응식 문제(8번)에 주기율표 문제(9번) 보기가 섞여서
+"① Zn ② Cu2+ 그림은 주기율표의 일부를..." 처럼 두 문제가 한 덩어리로 붙어 나옴) - 정작
+Gemini는 마킹된 이미지를 보고 8번 문제를 정확히 읽어서 정답/해설은 맞았는데, 화면에 뜨는
+"문제" 텍스트만 question_locator가 잘못 잘라준 OCR 텍스트를 그대로 쓰고 있었다. 그래서
+english_explainer.py와 동일하게 Gemini에게 problem_text(발문+보기 전체)도 이미지에서 직접
+옮겨 적게 하고, 그 값을 화면 표시용 원문으로 쓴다(question_locator의 ocr_text는 참고용
+힌트 + Gemini가 못 준 경우의 폴백으로 격하). pipeline.py도 함께 수정됨(problem_text를
+locate_result.query_text 대신 explanation.get("problem_text")로 읽도록).
 """
 import cv2
 
@@ -27,8 +39,11 @@ _BASE_PROMPT_TEMPLATE = """
 - 쉬운 우리말 사용
 - 친근한 말투
 - 아래 JSON 형식으로만 답하세요. 다른 설명, 인사말, 마크다운 코드블록 없이 순수 JSON만 출력하세요.
+- problem_text는 절대 지어내거나 요약하지 말고, 빨간 박스 안에 실제로 인쇄된 문제(발문+보기)를
+  그대로(오타·철자까지) 옮겨 적으세요. 문항 번호("8.")는 빼고 본문만 적으세요.
 
-{{"explanation_text": "질문 되짚기(있다면) + 문제 풀이를 하나로 자연스럽게 이어 쓴 설명 (아래 [해설 작성 규칙] 참고)",
+{{"problem_text": "빨간 박스 안, 실제로 풀어야 할 문제의 발문과 보기 전체를 이미지에 보이는 그대로 옮겨 적으세요. 아래 [문제 내용] 참고용 텍스트가 이미지와 다르면(다른 문제와 섞였거나 잘렸으면) 참고용 텍스트를 무시하고 이미지에 실제로 보이는 내용을 옮기세요.",
+  "explanation_text": "질문 되짚기(있다면) + 문제 풀이를 하나로 자연스럽게 이어 쓴 설명 (아래 [해설 작성 규칙] 참고)",
   "answer": "정답 번호와 내용",
   "question_number": 실제로 풀이한 문제 번호(정수)}}
 
@@ -51,7 +66,8 @@ _BASE_PROMPT_TEMPLATE = """
   되짚으면 없는 질문을 지어내는 것이 됩니다.
 
 {optional_sections}
-[문제 내용 (OCR)]
+[문제 내용 참고용 - OCR 추출 결과라 다른 문제와 섞였거나 잘렸을 수 있습니다. 이미지의 빨간
+박스 안 내용과 다르면 이 텍스트는 무시하고 이미지에서 직접 옮기세요]
 {ocr_text}
 
 [핵심 키워드]
@@ -150,8 +166,10 @@ def explain_guksagwa(ocr_result, classification, marked_image=None, user_questio
     transcript: 학생이 음성으로 한 질문 텍스트. 없으면 None.
     reference: 유사 기출 1건 {"answer":..., "explanation":...} 형태. 없으면 None.
 
-    반환: {"explanation_text": str,
+    반환: {"problem_text": str, "explanation_text": str,
            "answer": str, "question_number": int|None, "subject_mismatch": str|None}
+    problem_text는 Gemini가 이미지에서 직접 옮겨 적은 값이다 - ocr_result["ocr_text"]가
+    아니다(그건 참고용 힌트 + Gemini가 비워서 준 경우의 폴백으로만 쓰인다).
     subject_mismatch가 str이면 나머지 필드는 빈 값이다 - 호출부가 이 경우 다른 과목 분기로
     재호출해야 한다.
     answer는 원문 문자열 그대로 반환한다 - {number, text} 정규화는 pipeline.py가
@@ -189,7 +207,13 @@ def explain_guksagwa(ocr_result, classification, marked_image=None, user_questio
     parsed = _apply_korean_key_fallback(parsed)
     explanation_text = parsed.get("explanation_text", "")
 
+    # Gemini가 이미지에서 직접 옮겨 적은 problem_text를 화면 표시용 원문으로 쓴다 - 비우거나
+    # 못 준 경우에만 question_locator의 OCR 텍스트로 폴백한다 (위 [problem_text 출처 변경] 참고).
+    gemini_problem_text = (parsed.get("problem_text") or "").strip()
+    problem_text = gemini_problem_text or ocr_result.get("ocr_text", "") or ""
+
     return {
+        "problem_text": problem_text,
         "explanation_text": explanation_text,
         "answer": parsed.get("answer", ""),
         "question_number": parsed.get("question_number"),

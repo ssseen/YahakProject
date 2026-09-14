@@ -496,7 +496,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
             "type": "guksagwa",
             "subject": subject_hint or branch,
             "problem_type": problem_type,
-            "problem_text": locate_result.query_text,
+            "problem_text": explanation.get("problem_text") or locate_result.query_text,
             # 내부 explanation_text -> 외부 API 계약 필드 explanation으로 매핑
             # (explainer 반환 dict에는 explanation 키가 없음 - explanation_text만 있음.
             # 이 "explanation"은 run_pipeline() 응답의 필드명이라 프론트 계약상 이름을 유지함).

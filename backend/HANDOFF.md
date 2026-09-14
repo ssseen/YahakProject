@@ -270,12 +270,26 @@ v1(예전)은 Gemini를 두 번(OCR용 1차 + 해설용 2차) 불렀는데, v2�
    남아있던 "was beautiful." 잔여 오염도 완전히 사라짐. 테스트:
    `tests/test_english_explainer.py`(가짜 모델로 Gemini 응답 모킹, 네트워크 호출
    없음) - Gemini 텍스트 우선 사용 + OCR 텍스트 폴백(지문 없음/보기 빈 배열) 검증.
-   **미검증**: 12번 문제(안내문 플라이어 케이스) 자체는 원본 사진 파일이 서버에서
-   즉시 삭제되는 구조라 재현 못 했음 - 같은 페이지의 다른 증상이라 같은 원인일
-   가능성이 높지만, 실제 재촬영으로 확인 필요. 국사과 쪽(`guksagwa_explainer.py`)
-   은 이번에 안 건드렸음 - `pipeline.py`가 `problem_text`로 `locate_result.query_text`
-   를 그대로 쓰고 있어서(별도 검증 없음) 이론상 같은 종류의 오염에 노출돼 있음,
-   후속 확인 필요.
+   **후속 확인 완료**: 12번 문제(안내문 플라이어 케이스) 원본 사진 파일 자체는 서버에서
+   즉시 삭제되는 구조라 재현은 못 했지만, 바로 다음 날 국사과(과학, 8번 화학 반응식
+   문제에 9번 주기율표 문제 보기가 섞이는 사례)에서 완전히 같은 증상이 실사용 중
+   재확인됐다 - 아래 7번 항목 참고, 같은 원인이었음이 확정됨.
+7. **국사과(`guksagwa_explainer.py`)에도 6번과 동일한 문제 발견 및 수정 (2026-09-15)**
+   — 프론트에서 화학 8번 문제("Zn + Cu2+ → Zn2+ + Cu")를 풀었는데, 화면에 "① Zn
+   ② Cu2+ 그림은 주기율표의 일부를 나타낸 것이다..."처럼 8번 보기 뒤에 9번(주기율표)
+   문제 지문/보기가 그대로 이어붙어 나옴 - 정답/해설은 정확히 8번 기준으로 맞았음
+   (Gemini는 이미지를 제대로 읽고 있었다는 뜻). 6번과 완전히 같은 구조: 화면에 뜨는
+   `problem_text`가 `pipeline.py`에서 `locate_result.query_text`(question_locator가
+   잘라준 OCR 텍스트)를 그대로 썼고, `guksagwa_explainer.py`는 애초에 problem_text를
+   반환조차 하지 않았음. **수정**: 6번과 동일한 패턴 적용 - `guksagwa_explainer.py`
+   프롬프트에 `problem_text`(발문+보기 전체, 이미지에서 직접 옮겨 적기)를 JSON 응답
+   항목으로 추가, `explain_guksagwa()`가 이 값을 반환(Gemini가 비우면 `ocr_text`로
+   폴백)하도록 수정. `pipeline.py`의 `"problem_text": locate_result.query_text`를
+   `explanation.get("problem_text") or locate_result.query_text`로 변경. 실측 검증
+   (84.jpg, 사회/신석기 문제 재실행): `problem_text`가 발문+보기 4개로 정확히 한
+   문제만 깔끔하게 나옴, 정답도 정확(②신석기). 테스트:
+   `tests/test_guksagwa_explainer.py` (가짜 모델 모킹, Gemini 텍스트 우선 사용 +
+   OCR 텍스트 폴백 검증).
 
 ---
 
