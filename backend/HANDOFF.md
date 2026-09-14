@@ -290,6 +290,23 @@ v1(예전)은 Gemini를 두 번(OCR용 1차 + 해설용 2차) 불렀는데, v2�
    문제만 깔끔하게 나옴, 정답도 정확(②신석기). 테스트:
    `tests/test_guksagwa_explainer.py` (가짜 모델 모킹, Gemini 텍스트 우선 사용 +
    OCR 텍스트 폴백 검증).
+8. **`_retake_response`에 "message" 필드가 없어서 화면에 문자 그대로 "undefined"가 뜸
+   (2026-09-15)** — `103.jpg`(손끝 재검출이 잘 안 되는 사진)로 재현. 사진 제출 직후
+   (Clova/Gemini 호출 전, 0.2초 안쪽) 화면에 "undefined"가 뜬다는 제보를 받고 원인을
+   찾음: `pipeline.py`의 `_retake_response(reason, ...)`가 `status`/`reason`/
+   `blur_score`/`brightness`/`skew_deg`/`text_object_count`만 반환하고 `message`
+   키가 아예 없었음. 프론트(`photo-processing.js`)는 `status: "retake"` 응답을
+   받으면 `errorMessage = data.message`로 그대로 읽어서 화면에 찍는데, 이 필드가
+   `undefined`(JS)면 템플릿 리터럴이 그걸 문자 그대로 "undefined"라는 텍스트로
+   바꿔버림. `vision_processor.py`의 1차 품질검사(블러/밝기) retake는 자체적으로
+   message를 채워 보내서 이 버그가 없었고, `pipeline.py` 내부(`no_finger`/`no_text`/
+   `location_failed`/`rotation_misdetected`)에서 만드는 retake만 빠져 있었음.
+   **수정**: `_retake_response`에 reason별 한국어 메시지 매핑(`_RETAKE_MESSAGES`,
+   모르는 reason은 기본 메시지로 폴백) 추가. 프론트 쪽도 방어적으로
+   `data.message || '사진을 인식하지 못했어요...'` 폴백 추가(이미 다른 케이스
+   `unsupported_subject`엔 있던 패턴을 여기도 맞춤). 테스트:
+   `tests/test_pipeline.py::test_retake_response_always_has_nonempty_message`
+   (모든 reason에 대해 message가 항상 채워지는지 확인).
 
 ---
 

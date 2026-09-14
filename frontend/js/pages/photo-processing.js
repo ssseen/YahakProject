@@ -193,7 +193,9 @@ export function renderPhotoProcessing(container) {
         break;
 
       case 'retake':
-        errorMessage = data.message; // "사진이 너무 흔들렸어요..." 등 - blur_score는 읽지 않음
+        // "사진이 너무 흔들렸어요..." 등 - blur_score는 읽지 않음. data.message가 없는 경우를
+        // 대비한 폴백 필수 - 없으면 화면에 문자 그대로 "undefined"가 찍힌다(실사용 중 발견).
+        errorMessage = data.message || '사진을 인식하지 못했어요.\n다시 찍어주세요';
         step = 'error';
         render();
         break;
