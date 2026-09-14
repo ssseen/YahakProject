@@ -131,7 +131,7 @@ export function renderPhotoProcessing(container) {
     }, 'image/jpeg', 0.9);
   }
 
-  const API_BASE = 'http://localhost:8000'; // TODO: 배포 시 실제 서버 주소로 변경
+  const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app'; // Cloud Run 배포 주소 (2026-09-14)
 
   function blobToDataUri(blob) {
     return new Promise((resolve, reject) => {
