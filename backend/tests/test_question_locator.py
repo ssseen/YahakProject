@@ -78,3 +78,25 @@ def test_t8_right_column():
 def test_t9_range_span():
     r = locate_question(LINES, (441, 813), PAGE_H)
     assert r.range_span == (3, 4)
+
+
+# 회귀 방지: 35.jpg 실사례 - 컬럼에 앵커가 1개(9번)뿐이고, 다음 문항 번호(15번)를
+# Clova가 "I5."처럼 오독해 앵커로 인식하지 못하면, 예전 로직은 컬럼 끝까지 전부
+# 밴드에 넣어서 9번의 보기 뒤에 다음 문항 지문이 그대로 이어붙었다(옵션 ④ 오염).
+# 줄 간격이 크게 벌어지는 지점에서 끊어야 한다.
+LINES_UNRECOGNIZED_NEXT_ANCHOR = [
+    Line("9. 다음 대화의 빈칸에 들어갈 말로 가장 적절한 것은?", (100, 300, 700, 322)),
+    Line("A: Oh, no.", (123, 335, 400, 357)),
+    Line("① opt1 ② opt2 ③ opt3 ④ opt4", (105, 370, 700, 392)),
+    # 다음 문항의 번호가 "I5."로 오독되어 ANCHOR 정규식에 매칭되지 않음(앵커 미검출).
+    Line("I5. 다음 대화의 빈칸에 들어갈 말로 가장 적절한 것은?", (100, 700, 700, 722)),
+    Line("A: What should I do?", (123, 735, 700, 757)),
+]
+
+
+def test_t10_single_anchor_column_cuts_at_large_gap():
+    r = locate_question(LINES_UNRECOGNIZED_NEXT_ANCHOR, (400, 340), PAGE_H)
+    assert r.question_number == 9
+    assert r.fallback_level == 2  # 이 컬럼에서 실제로 검출된 앵커는 9번 하나뿐
+    assert "What should I do" not in r.query_text
+    assert "opt4" in r.query_text

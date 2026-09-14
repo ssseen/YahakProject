@@ -53,6 +53,27 @@ def resize_for_ocr(image_path: str, long_side: int = _LONG_SIDE) -> tuple[bytes,
     return buf.getvalue(), w, h
 
 
+def rotate_image_bytes(image_bytes: bytes) -> tuple[bytes, int, int]:
+    """
+    이미 리사이즈된 JPEG 바이트를 90도 회전해 다시 인코딩한다 (Image.rotate(90,
+    expand=True) 방식 - 반시계 방향, PIL 기준 좌상단 픽셀이 결과 이미지의 좌하단으로
+    이동함. pipeline.py가 이 방향에 맞춰 손끝 좌표도 함께 변환해야 한다:
+    새 x = 기존 y, 새 y = (회전 전 페이지 폭 - 1) - 기존 x).
+
+    실사용 중 발견(2026-09-14, 35.jpg) - Clova가 페이지 방향은 똑바로(EXIF 정상,
+    업로드 이미지도 육안상 정상) 받고도 텍스트를 세로로 오인식하는 경우가 있음(보기
+    격자/박스가 많아 시각적으로 복잡한 페이지에서 재현됨). 이 경우 원본을 90도 돌려서
+    다시 보내면 Clova가 오히려 정상적으로(가로) 읽는 현상을 실측으로 확인함 - 정확한
+    원인은 Clova 내부 로직이라 알 수 없지만, 재시도용 보정으로 씀.
+    """
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    rotated = img.rotate(90, expand=True)
+    w, h = rotated.size
+    buf = io.BytesIO()
+    rotated.save(buf, format="JPEG", quality=90)
+    return buf.getvalue(), w, h
+
+
 def _post_once(invoke_url: str, secret_key: str, image_bytes: bytes) -> httpx.Response:
     body = {
         "version": "V2",

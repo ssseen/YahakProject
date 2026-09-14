@@ -277,7 +277,25 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
         next_top = anchors_sorted[1].top if len(anchors_sorted) > 1 else None
 
     band_top = band_anchor.top
-    band_bottom = next_top if next_top is not None else max(l.bbox[3] for i, l in enumerate(body_lines) if i in col)
+    if next_top is not None:
+        band_bottom = next_top
+    else:
+        # 이 컬럼에서 다음 앵커를 못 찾은 경우(예: 다음 문항 번호를 Clova가 못 읽음).
+        # 예전엔 컬럼 끝까지 통째로 밴드에 넣었는데, 그러면 진짜로 이어지는 다음
+        # 문항의 지문/보기까지 이번 문항의 보기 뒤에 그대로 붙어버린다(실측 사례:
+        # 35.jpg 14번 문항 - 보기 ④에 다음 문항 지문이 이어붙어서 나옴). band_top
+        # 아래 같은 컬럼 줄들을 y순으로 보면서, 줄 간격이 갑자기 확 벌어지는 지점
+        # (문항 전환으로 추정)에서 밴드를 끊는다.
+        col_lines_below = sorted(
+            (l for i, l in enumerate(body_lines) if i in col and l.bbox[1] >= band_top),
+            key=lambda l: l.bbox[1],
+        )
+        band_bottom = col_lines_below[-1].bbox[3] if col_lines_below else band_top
+        gap_threshold = median_h * 3
+        for prev_l, cur_l in zip(col_lines_below, col_lines_below[1:]):
+            if cur_l.bbox[1] - prev_l.bbox[3] > gap_threshold:
+                band_bottom = prev_l.bbox[3]
+                break
 
     band_lines = [l for i, l in enumerate(body_lines) if i in col and band_top <= l.bbox[1] < band_bottom]
 

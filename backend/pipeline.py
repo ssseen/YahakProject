@@ -29,7 +29,7 @@ from pinecone import Pinecone
 import os
 
 from vision_processor import find_finger_tip
-from app.clova_client import resize_for_ocr, call_clova, to_lines, ClovaError
+from app.clova_client import resize_for_ocr, call_clova, to_lines, rotate_image_bytes, ClovaError
 from app.question_locator import locate_question, LocateError
 from app.subject_router import decide_branch, select_similar, BRANCH_OF
 from guksagwa_explainer import explain_guksagwa
@@ -124,6 +124,30 @@ def _split_passage_and_options(text):
         opt_text = re.sub(r"^\s*\d+\s*", "", opt_text)  # 맨 숫자 마커였던 경우 그 숫자도 제거
         options.append({"no": i + 1, "text": opt_text.strip()})
     return passage, options
+
+
+_ROTATION_SANITY_THRESHOLD = 0.3  # 이 이상 비율로 "세로로 눕혀 읽힌" 줄이 나오면 오인식으로 판단
+
+
+def _fraction_tall_lines(lines):
+    """Clova가 줄을 세로(위→아래)로 오인식했는지 판단하는 휴리스틱.
+    실사용 중 발견(2026-09-14, 35.jpg) - 업로드 이미지 자체는 똑바른데(EXIF 정상,
+    육안 확인 완료) Clova가 보기 격자/박스가 많은 페이지에서 내부적으로 텍스트 방향을
+    잘못 판단해, 가로로 인쇄된 문장인데도 세로로 긴 bbox(높이 >> 너비)를 돌려주는
+    경우를 확인함 - 이러면 question_locator의 컬럼(x)/순서(y) 판정이 전부 어긋나
+    엉뚱한 문항끼리 섞여버린다. 한글/영어 가로쓰기 문장은 거의 항상 너비가 높이보다
+    크므로, 줄 대부분이 반대(높이가 너비의 1.5배 초과)면 페이지 방향 오인식으로 본다."""
+    ratios = []
+    for l in lines:
+        w = l.bbox[2] - l.bbox[0]
+        h = l.bbox[3] - l.bbox[1]
+        if w <= 0:
+            continue
+        ratios.append(h / w)
+    if not ratios:
+        return 0.0
+    tall = sum(1 for r in ratios if r > 1.5)
+    return tall / len(ratios)
 
 
 def _bbox_overlaps(a, b):
@@ -307,6 +331,31 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
 
     if not ocr_data["lines"]:
         return _retake_response(reason="no_text")
+
+    tall_ratio = _fraction_tall_lines(ocr_data["lines"])
+    if tall_ratio > _ROTATION_SANITY_THRESHOLD:
+        print(f"경고: 줄의 {tall_ratio:.0%}가 세로로 긴 bbox - Clova가 페이지 방향을 "
+              "오인식한 것으로 추정, 90도 회전 후 재시도")
+        try:
+            rot_bytes, rot_w, rot_h = rotate_image_bytes(resized_bytes)
+            retry_response = call_clova(rot_bytes)
+        except ClovaError as e:
+            return {"status": "error", "message": f"OCR 재시도 실패: {e}"}
+        retry_data = to_lines(retry_response)
+        retry_tall_ratio = _fraction_tall_lines(retry_data["lines"]) if retry_data["lines"] else 1.0
+        if retry_data["lines"] and retry_tall_ratio <= _ROTATION_SANITY_THRESHOLD:
+            print(f"   -> 회전 재시도 성공 (줄 {len(retry_data['lines'])}개, "
+                  f"세로 비율 {retry_tall_ratio:.0%})")
+            # Image.rotate(90, expand=True) 방향(반시계) 기준 좌표 변환: 회전 전
+            # 페이지 폭(page_w) 기준으로 새 x = 기존 y, 새 y = (page_w - 1) - 기존 x.
+            fx, fy = fy, page_w - 1 - fx
+            page_w, page_h = rot_w, rot_h
+            resized_bytes = rot_bytes
+            resized_img = cv2.imdecode(np.frombuffer(resized_bytes, np.uint8), cv2.IMREAD_COLOR)
+            ocr_data = retry_data
+        else:
+            print(f"   -> 회전 재시도도 실패 (세로 비율 {retry_tall_ratio:.0%}) - 재촬영 필요")
+            return _retake_response(reason="rotation_misdetected")
 
     print("2. 문항 특정 (question_locator)...")
     t_locate = time.perf_counter()

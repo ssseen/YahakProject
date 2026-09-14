@@ -4,19 +4,32 @@ guksagwa_explainer.py와 구조는 같다. 다른 점은 반환 형태 - HTML을
 구조화된 JSON만 반환한다(지문/보기 단어를 탭하면 뜻이 뜨는 렌더링은 프론트가 담당).
 
 [토큰화 방식 - 정렬 문제 회피]
-Gemini에게 지문/보기를 다시 쓰게 하면, 아주 살짝이라도 다르게 재현될 경우(공백/철자/줄바꿈 차이)
-프론트에서 "이 단어가 몇 번째 토큰인지" 매칭이 깨진다. 그래서:
-  1) 지문(원문)은 ocr_result가 이미 갖고 있는 passage_text를, 보기는 options를 그대로 쓰고,
-     Gemini 2차 호출에는 "지문/보기를 다시 쓰지 말라"고 명시한다.
-  2) 원문 토큰화는 백엔드가 정규식으로 직접 한다 (_tokenize) - 단어/구두점/공백을 전부 토큰으로
-     쪼개서, 토큰을 순서대로 이어붙이면 원문이 그대로 복원된다 (공백도 토큰이라 유실이 없음).
-     지문과 각 보기에 독립적으로 적용한다 (지문에 없고 보기에만 나오는 단어도 팝업이 떠야 하므로).
-  3) Gemini에는 "단어 -> 뜻" dict(vocabulary) 하나만 요청해서 지문/보기 양쪽 토큰에 공용으로
-     매칭한다 (_attach_meanings). dict에 있는데 지문+보기 어디에도 하나도 안 맞는 키가 있으면
-     경고를 print한다 (Gemini가 원문에 없는 철자/형태를 줬다는 뜻 - 프론트 단어 팝업 누락의
-     원인 추적용). 지문 호출과 보기 호출을 따로 경고하면, 보기에만 나오는 단어가 지문 쪽에서
-     "매칭 안 됨"으로 잡혀 거짓 경고가 쏟아지므로, 매칭된 키를 전체(지문+모든 보기)에서 모은
-     뒤 마지막에 한 번만 비교한다.
+지문/보기 원문은 이제 Gemini가 이미지에서 직접 옮겨 적은 passage_text/options를 쓴다
+(2026-09-14 변경 - 아래 [passage_text/options 출처 변경] 참고). 토큰화 자체은 여전히
+백엔드가 정규식으로 직접 한다 (_tokenize) - 단어/구두점/공백을 전부 토큰으로 쪼개서, 토큰을
+순서대로 이어붙이면 원문이 그대로 복원된다(공백도 토큰이라 유실이 없음). 지문과 각 보기에
+독립적으로 적용한다 (지문에 없고 보기에만 나오는 단어도 팝업이 떠야 하므로). Gemini에는
+"단어 -> 뜻" dict(vocabulary) 하나만 별도로 요청해서 지문/보기 양쪽 토큰에 공용으로
+매칭한다 (_match_tokens). dict에 있는데 지문+보기 어디에도 하나도 안 맞는 키가 있으면
+경고를 print한다 (Gemini가 원문에 없는 철자/형태를 줬다는 뜻 - 프론트 단어 팝업 누락의
+원인 추적용). 지문 호출과 보기 호출을 따로 경고하면, 보기에만 나오는 단어가 지문 쪽에서
+"매칭 안 됨"으로 잡혀 거짓 경고가 쏟아지므로, 매칭된 키를 전체(지문+모든 보기)에서 모은
+뒤 마지막에 한 번만 비교한다.
+
+[passage_text/options 출처 변경 - 2026-09-14]
+원래는 question_locator가 잘라준 OCR 텍스트(ocr_result.passage_text/options)를 화면
+표시용 "원문"으로 그대로 쓰고, Gemini에는 "절대 다시 쓰지 말라"고만 했다 - Gemini가 재현할 때
+공백/철자가 살짝 달라지면 vocabulary 매칭이 깨질까봐서였다. 그런데 실사용 중(35.jpg, 12번
+문제 등) question_locator의 컬럼/밴드 판정이 복잡한 문제지(보기 박스가 빽빽한 레이아웃)에서
+서로 다른 문제 두세 개를 하나로 묶어버리는 사례가 반복 확인됐다 - 정작 Gemini는 마킹된
+이미지를 직접 보고 정답/해설/번역은 정확히 맞혔는데, 화면에 뜨는 지문/보기 텍스트만 그
+잘못된 OCR 텍스트를 그대로 박아넣어서 완전히 다른 문제 내용이 섞여 보였다. 즉 Gemini가
+이미 올바른 내용을 읽고 있다는 게 반복 확인됐으므로, question_locator의 텍스트는 "참고용
+힌트"로 격하하고 Gemini가 이미지에서 직접 옮겨 적은 passage_text/options를 화면 표시용
+원문으로 승격했다. 트레이드오프: Gemini가 여전히 아주 살짝 다르게 옮길 가능성은 남아있지만
+(vocabulary 매칭 실패 경고로 감지됨), 문제 자체가 통째로 뒤섞이는 것보다는 훨씬 낫다.
+question_locator 결과는 여전히 프롬프트에 참고용으로 들어가고 Gemini가 완전히 못 읽는
+극단적 케이스를 대비해 폴백으로도 쓰인다(아래 explain_english 참고).
 
 [v2 변경 - 2026-08-25]
 - marked_image: 문제 하나만 잘라낸 crop이 아니라 "전체 페이지 + 대상 문항 빨간 박스"를
@@ -47,10 +60,13 @@ _BASE_PROMPT_TEMPLATE = """
 - 쉬운 우리말 사용
 - 친근한 말투
 - 아래 JSON 형식으로만 답하세요. 다른 설명, 인사말, 마크다운 코드블록 없이 순수 JSON만 출력하세요.
-- 지문(passage)과 보기(options)는 절대 다시 쓰지 마세요. 아래 JSON에 원문을 그대로 포함하지
-  마세요 (백엔드가 따로 처리합니다). 참고만 하세요.
+- passage_text/options는 절대 지어내거나 의역하지 말고, 빨간 박스 안에 실제로 인쇄된 글자를
+  그대로(오타·철자까지) 옮겨 적으세요. 다만 문항 번호("13.")나 보기 마커(①②③④)는 빼고
+  본문 내용만 적으세요.
 
 {{
+  "passage_text": "빨간 박스 안, 실제 풀어야 할 문제의 지문/발문 원문을 이미지에 보이는 그대로 옮겨 적으세요 (보기 ①②③④는 제외). 아래 [지문] 참고용 텍스트가 이미지와 다르면(다른 문제와 섞였거나 잘려나갔으면) 참고용 텍스트를 무시하고 이미지에 실제로 보이는 내용을 옮기세요. 절대 지어내거나 요약하지 말고 있는 그대로만 옮기세요.",
+  "options": [{{"no": 1, "text": "보기 ①번 원문 (마커 기호 제외)"}}, {{"no": 2, "text": "..."}}, {{"no": 3, "text": "..."}}, {{"no": 4, "text": "..."}}],
   "translation": "지문 전체를 쉬운 우리말로 자연스럽게 번역",
   "option_translations": {{"1": "보기 1번을 쉬운 우리말로 번역", "2": "...", "3": "...", "4": "..."}},
   "vocabulary": {{"지문 또는 보기에 나온 그대로의 단어(활용형 포함)": "뜻 (원형이 다르면 뜻 뒤에 원형을 병기)"}},
@@ -90,10 +106,11 @@ _BASE_PROMPT_TEMPLATE = """
   되짚으면 없는 질문을 지어내는 것이 됩니다.
 
 {optional_sections}
-[지문 (OCR로 이미 추출됨 - 참고만 하고 다시 쓰지 마세요)]
+[지문 참고용 - OCR 추출 결과라 다른 문제와 섞였거나 잘렸을 수 있습니다. 이미지의 빨간 박스
+안 내용과 다르면 이 텍스트는 무시하고 이미지에서 직접 옮기세요]
 {passage}
 
-[보기 (OCR로 이미 추출됨 - 참고만 하고 다시 쓰지 마세요)]
+[보기 참고용 - 위와 동일하게 이미지와 다르면 무시하세요]
 {options_block}
 
 [문제 유형]
@@ -199,7 +216,9 @@ def explain_english(ocr_result, classification, marked_image=None, user_question
     """
     ocr_result: extract_problem_info()(v1) 또는 question_locator 결과를 옮겨 담은 동등한 dict.
       passage_text가 지문(보기 제외) 원문, options가 [{"no", "text"}, ...] 보기 목록이다.
-      passage_text가 비어 있으면 ocr_text로 폴백한다.
+      passage_text가 비어 있으면 ocr_text로 폴백한다. 화면 표시용 최종 원문은 이 값이 아니라
+      Gemini가 이미지에서 직접 옮겨 적은 passage_text/options로 대체된다 - 이 인자는 프롬프트
+      참고용 힌트 + Gemini가 그마저도 못 준 경우의 폴백으로만 쓰인다.
     classification: classify_problem()의 반환값 ({"과목", "대분류", "중분류"}).
     marked_image: 전체 페이지 + 대상 문항을 빨간 박스로 표시한 이미지 (BGR np.ndarray).
       v1 파이프라인은 이 자리에 문제만 잘라낸 crop을 그대로 넘긴다 - 위치 인자라 이름이
@@ -255,15 +274,32 @@ def explain_english(ocr_result, classification, marked_image=None, user_question
     if parsed.get("subject_mismatch"):
         return {"subject_mismatch": parsed["subject_mismatch"]}
 
+    # Gemini가 이미지에서 직접 옮겨 적은 passage_text/options를 화면 표시용 원문으로 쓴다
+    # (question_locator가 잘라준 OCR 텍스트는 참고용 힌트일 뿐 - 위 [passage_text/options
+    # 출처 변경] 참고). Gemini가 비워서 주는 등 못 받은 경우에만 OCR 텍스트로 폴백한다.
+    gemini_passage = (parsed.get("passage_text") or "").strip()
+    final_passage = gemini_passage or passage
+
+    gemini_options = parsed.get("options")
+    final_options_in = options_in
+    if isinstance(gemini_options, list):
+        cleaned = [
+            {"no": o.get("no"), "text": (o.get("text") or "").strip()}
+            for o in gemini_options
+            if isinstance(o, dict) and o.get("no") is not None
+        ]
+        if cleaned:
+            final_options_in = cleaned
+
     vocab_lower = {k.lower(): v for k, v in (parsed.get("vocabulary") or {}).items()}
     matched_keys = set()
 
-    passage_tokens = _match_tokens(_tokenize(passage), vocab_lower, matched_keys)
+    passage_tokens = _match_tokens(_tokenize(final_passage), vocab_lower, matched_keys)
 
     option_translations = parsed.get("option_translations") or {}
     options_out = []
     translation_options_out = []
-    for opt in options_in:
+    for opt in final_options_in:
         no = opt.get("no")
         text = opt.get("text", "") or ""
         options_out.append({
@@ -281,7 +317,7 @@ def explain_english(ocr_result, classification, marked_image=None, user_question
     explanation_text = parsed.get("explanation_text", "")
 
     return {
-        "passage": {"text": passage, "tokens": passage_tokens},
+        "passage": {"text": final_passage, "tokens": passage_tokens},
         "options": options_out,
         "translation": {
             "passage": parsed.get("translation", ""),

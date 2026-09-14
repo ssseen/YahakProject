@@ -3,7 +3,8 @@ pipeline.py의 순수 로직 함수 테스트 (네트워크 호출 없음).
 """
 from types import SimpleNamespace
 
-from pipeline import _format_similar_questions
+from app.question_locator import Line
+from pipeline import _format_similar_questions, _fraction_tall_lines, _ROTATION_SANITY_THRESHOLD
 
 
 def _match(id_="q1", score=0.64, **fields):
@@ -52,3 +53,23 @@ def test_format_similar_questions_passthrough_fields():
     assert row["year"] == "2022"
     assert row["exam_round"] == "2"
     assert row["question_number"] == "3"
+
+
+# 회귀 방지: 35.jpg 실사례(2026-09-14) - Clova가 페이지 방향은 정상 업로드(EXIF
+# 정상, 육안 확인 완료) 받고도 텍스트를 세로로 오인식해 모든 줄의 bbox가
+# 높이>>너비로 나온 적이 있음. _fraction_tall_lines가 이걸 감지해야 회전 재시도가
+# 트리거된다.
+def test_fraction_tall_lines_all_normal_horizontal():
+    lines = [Line("normal text", (0, 0, 300, 40)), Line("another line", (0, 50, 280, 90))]
+    assert _fraction_tall_lines(lines) == 0.0
+
+
+def test_fraction_tall_lines_all_misread_as_vertical():
+    # 35.jpg 실측과 같은 패턴: 폭은 좁고(40px대) 높이가 수백~천대인 줄들
+    lines = [Line("which", (101, 168, 144, 283)), Line("A: ...", (45, 529, 97, 1389))]
+    assert _fraction_tall_lines(lines) == 1.0
+    assert _fraction_tall_lines(lines) > _ROTATION_SANITY_THRESHOLD
+
+
+def test_fraction_tall_lines_empty_list():
+    assert _fraction_tall_lines([]) == 0.0
