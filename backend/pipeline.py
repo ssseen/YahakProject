@@ -217,11 +217,30 @@ def _format_similar_questions(matches):
     return out
 
 
+_RETAKE_MESSAGES = {
+    "no_finger": "손끝을 찾지 못했어요.\n손가락으로 문제를 짚어주세요",
+    "no_text": "글자를 읽지 못했어요.\n다시 찍어주세요",
+    "location_failed": "문제 위치를 찾지 못했어요.\n다시 찍어주세요",
+    "rotation_misdetected": "사진을 다시 읽지 못했어요.\n다시 찍어주세요",
+}
+_RETAKE_MESSAGE_DEFAULT = "사진을 인식하지 못했어요.\n다시 찍어주세요"
+
+
 def _retake_response(reason, blur_score=None, brightness=None):
-    """retake 응답 스키마를 하나로 통일한다. 해당 없는 값은 null."""
+    """
+    retake 응답 스키마를 하나로 통일한다. 해당 없는 값은 null.
+
+    실사용 중 발견(2026-09-15) - "message" 필드가 아예 없어서, 프론트
+    (photo-processing.js)가 `errorMessage = data.message`를 그대로 화면에 찍을 때
+    문자 그대로 "undefined"가 떴다(사진 제출 직후 손끝 재검출 실패 등으로 이 경로를
+    자주 탐). vision_processor.py의 품질 검사(blur/brightness) retake는 자체적으로
+    message를 채워 보내므로 이 버그가 없었다 - pipeline.py 내부에서 만드는 retake만
+    빠져 있었음.
+    """
     return {
         "status": "retake",
         "reason": reason,
+        "message": _RETAKE_MESSAGES.get(reason, _RETAKE_MESSAGE_DEFAULT),
         "blur_score": blur_score,
         "brightness": brightness,
         "skew_deg": None,  # vision_processor.py를 건드리지 않는 한 계산할 수 없음
@@ -256,8 +275,8 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
                     "translation": {...}, "explanation": str,
                     "answer": {"number": int|None, "text": str}, ...}
       미지원 과목    {"status": "unsupported_subject", "subject": str, "message": str}
-      재촬영 요청    {"status": "retake", "reason": str, "blur_score", "brightness",
-                    "skew_deg", "text_object_count"} (해당 없는 값은 null)
+      재촬영 요청    {"status": "retake", "reason": str, "message": str, "blur_score",
+                    "brightness", "skew_deg", "text_object_count"} (해당 없는 값은 null)
       오류 시        {"status": "error", "message": str}  (HTTP 500이 아니라 200으로 나감 -
                     main.py가 이 함수가 반환한 dict를 그대로 JSON 응답으로 돌려주기 때문에,
                     여기서 예외를 밖으로 던지지만 않으면 자동으로 200이 된다)
@@ -496,7 +515,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
             "type": "guksagwa",
             "subject": subject_hint or branch,
             "problem_type": problem_type,
-            "problem_text": locate_result.query_text,
+            "problem_text": explanation.get("problem_text") or locate_result.query_text,
             # 내부 explanation_text -> 외부 API 계약 필드 explanation으로 매핑
             # (explainer 반환 dict에는 explanation 키가 없음 - explanation_text만 있음.
             # 이 "explanation"은 run_pipeline() 응답의 필드명이라 프론트 계약상 이름을 유지함).

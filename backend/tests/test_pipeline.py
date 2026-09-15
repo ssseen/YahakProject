@@ -4,7 +4,12 @@ pipeline.py의 순수 로직 함수 테스트 (네트워크 호출 없음).
 from types import SimpleNamespace
 
 from app.question_locator import Line
-from pipeline import _format_similar_questions, _fraction_tall_lines, _ROTATION_SANITY_THRESHOLD
+from pipeline import (
+    _format_similar_questions,
+    _fraction_tall_lines,
+    _ROTATION_SANITY_THRESHOLD,
+    _retake_response,
+)
 
 
 def _match(id_="q1", score=0.64, **fields):
@@ -73,3 +78,13 @@ def test_fraction_tall_lines_all_misread_as_vertical():
 
 def test_fraction_tall_lines_empty_list():
     assert _fraction_tall_lines([]) == 0.0
+
+
+# 회귀 방지: 103.jpg 실사례(2026-09-15) - _retake_response에 "message" 필드가 없어서
+# 프론트(photo-processing.js)가 errorMessage = data.message를 그대로 화면에 찍을 때
+# 문자 그대로 "undefined"가 떴다. 모든 reason에 대해 message가 항상 채워져야 한다.
+def test_retake_response_always_has_nonempty_message():
+    for reason in ["no_finger", "no_text", "location_failed", "rotation_misdetected", "unknown_future_reason"]:
+        r = _retake_response(reason=reason)
+        assert r["status"] == "retake"
+        assert isinstance(r.get("message"), str) and r["message"].strip() != ""
