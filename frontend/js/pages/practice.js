@@ -5,7 +5,6 @@ export function renderPractice(container) {
   const state = getState();
   const similarQuestions = (state.question?.similar_questions || []).slice(0, 3);
 
-  // 1. 에러 문구 폰트 및 여백을 solve.js와 완벽히 통일
   if (similarQuestions.length === 0) {
     container.innerHTML = `
       <div style="text-align:center; padding:120px 0; color:var(--color-text-muted); font-size:0.8rem;">
@@ -31,8 +30,6 @@ export function renderPractice(container) {
     const correctIdx = parseInt(q.answer);
     const answerText = choicesArray[correctIdx - 1] || q.answer;
 
-    // 2. solve-screen 껍데기를 씌워 가로 폭과 배경색을 통일
-    // 3. solve.js와 완전히 똑같은 accordion, explanation-box, answer-box 클래스 사용
     container.innerHTML = `
       <section class="solve-screen">
         
@@ -42,12 +39,9 @@ export function renderPractice(container) {
         </div>
 
         <div class="accordion open">
-          <button class="accordion-toggle" type="button" style="pointer-events: none;">
-            <span class="accordion-title"><img src="image/quiz_icon.svg" alt="" aria-hidden="true" /> 문제</span>
-          </button>
-          
-          <div class="accordion-body">
-            ${q.year ? `<p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 10px;">${q.year}년 ${q.exam_round}회 검정고시 기출</p>` : ''}
+          <!-- 거슬리던 '문제' 토글 버튼을 완전히 삭제하고, 상단 패딩(20px)으로 넉넉한 여백 확보 -->
+          <div class="accordion-body" style="border-top: none; padding-top: 20px;">
+            ${q.year ? `<p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 12px;">${q.year}년 ${q.exam_round}회 검정고시 기출</p>` : ''}
             
             <p class="pre-line" style="margin-bottom: 15px;">${formattedQuestion}</p>
             ${imageHtml}
@@ -60,7 +54,7 @@ export function renderPractice(container) {
               `).join('')}
             </div>
             
-            <p class="tap-hint" id="tap-hint">
+            <p class="tap-hint" id="tap-hint" style="margin-top: 15px;">
               <img src="image/tap_hint_icon.svg" alt="" aria-hidden="true" /> 정답을 골라서 눌러보세요.
             </p>
           </div>
@@ -78,7 +72,6 @@ export function renderPractice(container) {
           </div>
         </div>
 
-        <!-- 4. position: fixed를 빼고 solve-screen 내부에 위치시켜 폭을 똑같이 맞춤 -->
         <div class="bottom-nav-bar" style="display: flex; justify-content: space-around; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee;">
           <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
             <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
@@ -127,7 +120,6 @@ export function renderPractice(container) {
         const selectedIdx = parseInt(this.dataset.index);
         const correctIdx = parseInt(q.answer);
 
-        // solve.css의 .correct 클래스를 붙여 완벽히 동일한 초록색 정답 UI 적용
         const correctEl = container.querySelector(`.choice[data-index="${correctIdx}"]`);
         if (correctEl) {
           correctEl.classList.add('correct'); 
