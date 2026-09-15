@@ -4,132 +4,125 @@ import { getState, resetQuestionFlow } from '../state.js';
 export function renderPractice(container) {
   const state = getState();
   
-  // 1. 파인콘에서 가져온 백엔드 유사 문제 데이터를 최대 3개까지만 자릅니다.
+  // 파인콘 데이터에서 최대 3개의 문제만 가져옵니다.
   const similarQuestions = (state.question?.similar_questions || []).slice(0, 3);
 
-  // 데이터가 없을 경우 예외 처리
+  // 3. 에러 문구 폰트/크기를 solve.js와 완벽히 통일
   if (similarQuestions.length === 0) {
     container.innerHTML = `
-      <div style="padding: 120px 20px 0 20px; text-align: center;">
-        <p>유사 문제를 불러오지 못했습니다.</p>
-        <button id="btn-back-empty" style="margin-top:20px; padding:10px 20px; cursor:pointer;">돌아가기</button>
+      <div style="text-align:center; padding:100px 0; color:var(--color-text-muted); font-size:0.8rem;">
+        <p style="margin-bottom: 20px;">유사 문제를 불러오지 못했습니다.</p>
+        <button id="btn-back-empty" style="padding:8px 16px; background:#fff; border:1px solid #ccc; border-radius:4px; cursor:pointer;">돌아가기</button>
       </div>
     `;
     container.querySelector('#btn-back-empty').addEventListener('click', () => navigate('/solve'));
     return;
   }
 
-  let currentIndex = 0; // 현재 풀고 있는 문제의 순서 (0, 1, 2)
+  let currentIndex = 0; // 현재 문제 순서 (0, 1, 2)
 
-  // 현재 인덱스에 맞는 문제를 화면에 그리는 함수
   function renderCurrentQuestion() {
     const q = similarQuestions[currentIndex];
     
-    // 3. 마지막 문제인지 판별하여 하단 바 렌더링에 사용합니다.
+    // 마지막(3번째) 문제인지 확인
     const isLastQuestion = currentIndex === similarQuestions.length - 1;
 
-    // 백엔드 문자열 파싱 (|| 기호 분리 및 줄바꿈)
     const choicesArray = q.choices ? q.choices.split('||').map(c => c.trim()) : [];
-    const formattedQuestion = (q.question || '')
-      .replace(/(A:|B:)/g, '<br>$1') 
-      .replace(/\n/g, '<br>');
-    const imageHtml = q.has_image ? `<img src="${q.image_path}" alt="문제 이미지" style="width: 100%; max-width: 400px; margin: 10px 0;" />` : '';
+    
+    // 줄바꿈 로직
+    let formattedQuestion = (q.question || '')
+      .replace(/\s*(A:|B:)/g, '\n$1') 
+      .trim()
+      .replace(/\n+/g, '<br>');
 
+    const imageHtml = q.has_image ? `<div class="passage-image-wrap"><img src="${q.image_path}" alt="문제 이미지" class="passage-image" /></div>` : '';
+
+    // 2. 전체를 <section class="solve-screen">으로 감싸서 하단 바 폭출을 막고 solve 화면과 폭을 동일하게 맞춤
     container.innerHTML = `
-      <div class="practice-screen" style="padding: 70px 20px 100px 20px; background: #fff; min-height: 100vh;">
+      <section class="solve-screen">
         
-        <!-- 헤더 -->
-        <div class="solve-header" style="display: flex; align-items: center; margin-bottom: 20px;">
-          <img src="image/smile_icon.svg" alt="" aria-hidden="true" style="width: 28px; margin-right: 8px;" />
-          <h2 style="margin: 0; font-size: 1.3rem; font-weight: bold;">비슷한 문제 풀어보기</h2>
+        <div class="solve-header">
+          <img src="image/smile_icon.svg" alt="" aria-hidden="true" />
+          <span>비슷한 문제 풀어보기</span>
         </div>
 
-        <!-- 회색 문제 카드 영역 -->
-        <div class="similar-card" style="background: #f4f6f8; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
-          ${q.year ? `<p style="font-size: 0.85rem; color: #888; margin-bottom: 10px;">${q.year}년 ${q.exam_round}회 검정고시 기출</p>` : ''}
-          
-          <p class="pre-line" style="font-size: 1rem; margin-bottom: 20px; line-height: 1.6; color: #333;">
-            ${formattedQuestion}
-          </p>
-          
-          ${imageHtml}
-          
-          <!-- 선택지 버튼들 -->
-          <div class="choice-list" id="practice-choices">
-            ${choicesArray.map((choiceText, i) => `
-              <div class="choice" data-index="${i + 1}" style="background: #fff; border: 1px solid #ccc; border-radius: 8px; padding: 12px; margin-bottom: 10px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s;">
-                ${choiceText}
-              </div>
-            `).join('')}
+        <div class="accordion open" style="margin-top: 15px;">
+          <div class="accordion-body" style="border-top: none; padding-top: 0;">
+            ${q.year ? `<p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 10px;">${q.year}년 ${q.exam_round}회 검정고시 기출</p>` : ''}
+            
+            <p class="pre-line" style="margin-bottom: 15px;">${formattedQuestion}</p>
+            
+            ${imageHtml}
+            
+            <div class="choice-list" id="practice-choices">
+              ${choicesArray.map((choiceText, i) => `
+                <div class="choice" data-index="${i + 1}">
+                  ${choiceText}
+                </div>
+              `).join('')}
+            </div>
+
+            <p id="tap-hint" class="tap-hint" style="margin-top: 15px;">
+              <img src="image/tap_hint_icon.svg" alt="" aria-hidden="true" /> 정답을 골라서 눌러보세요.
+            </p>
           </div>
-
-          <!-- 터치 힌트 -->
-          <p id="tap-hint" style="margin-top: 15px; font-size: 0.85rem; color: #666; display: flex; align-items: center; gap: 5px;">
-            <img src="image/tap_hint_icon.svg" alt="" aria-hidden="true" style="width:16px;" /> 정답을 골라서 눌러보세요.
-          </p>
         </div>
 
-        <!-- 2. 정답 클릭 시 나타날 해설 및 정답 영역 (처음엔 display: none) -->
+        <!-- 1. solve.css의 디자인(explanation-box, answer-box visible)을 100% 동일하게 가져옴 -->
         <div id="explanation-section" style="display: none;">
-          <div class="explanation-box" style="background: #eef2f6; border-radius: 12px; padding: 15px; margin-bottom: 15px;">
-            <p style="font-weight: bold; margin-bottom: 8px; display: flex; align-items: center; gap: 5px;">
-              <img src="image/solution_icon.svg" alt="" aria-hidden="true" style="width:18px;" /> 문제 해설
-            </p>
-            <p style="font-size: 0.95rem; line-height: 1.5; color: #333;">${q.explanation || '해설을 불러오지 못했습니다.'}</p>
+          <div class="explanation-box">
+            <p class="explanation-label"><img src="image/solution_icon.svg" alt="" aria-hidden="true" /> 문제 해설</p>
+            <p>${q.explanation || '해설을 불러오지 못했습니다.'}</p>
           </div>
 
-          <div class="answer-box" style="background: #a3cfb6; border-radius: 12px; padding: 15px; border: 1px solid #94bfa5;">
-            <p style="color: #2e593f; font-weight: bold; margin-bottom: 5px; font-size: 0.9rem;">✓ 정답</p>
-            <p style="color: #000; font-weight: bold; font-size: 1.05rem;">
-              ${choicesArray[parseInt(q.answer) - 1] || q.answer}
-            </p>
+          <div class="answer-box visible">
+            <p><img src="image/answer_icon.svg" alt="" aria-hidden="true" /> 정답</p>
+            <p class="answer-value">${choicesArray[parseInt(q.answer) - 1] || q.answer}</p>
           </div>
         </div>
 
-      </div>
+        <!-- 하단 네비게이션 바 (solve-screen 내부 삽입으로 폭 자동 맞춤) -->
+        <div class="bottom-nav-bar" style="display: flex; justify-content: space-around; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee;">
+          
+          <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
+            <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
+            <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
+          </button>
+          
+          <!-- 마지막 문제가 아닐 때만 '더 풀어보기' 버튼 렌더링 -->
+          ${!isLastQuestion ? `
+          <button id="nav-next" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer; opacity: 0.3; pointer-events: none;">
+            <img src="image/smile_plus_icon.png" alt="" style="width: 24px; height: 24px;" />
+            <span style="font-size: 0.8rem; margin-top: 4px;">더 풀어보기</span>
+          </button>
+          ` : ''}
+          
+        </div>
 
-      <!-- 동적 하단 네비게이션 바 -->
-      <div class="bottom-nav-bar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #fff; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid #eee; z-index: 1000;">
-        
-        <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer; flex: 1;">
-          <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
-          <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
-        </button>
-        
-        <!-- 마지막 문제가 아닐 때만 '더 풀어보기' 버튼 표시 -->
-        ${!isLastQuestion ? `
-        <button id="nav-next" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer; flex: 1; opacity: 0.3; pointer-events: none;">
-          <img src="image/smile_plus_icon.png" alt="" style="width: 24px; height: 24px;" />
-          <span style="font-size: 0.8rem; margin-top: 4px;">더 풀어보기</span>
-        </button>
-        ` : ''}
-        
-      </div>
+      </section>
     `;
 
     attachEventListeners(q);
   }
 
-  // 버튼 클릭 이벤트들을 연결하는 함수
   function attachEventListeners(q) {
-    
-    // [처음으로] 홈으로 이동
+    // [처음으로] 버튼
     container.querySelector('#nav-home').addEventListener('click', () => {
       resetQuestionFlow();
       navigate('/');
     });
 
-    // [더 풀어보기] 다음 문제 불러오기
+    // [더 풀어보기] 버튼
     const nextBtn = container.querySelector('#nav-next');
     if (nextBtn) {
       nextBtn.addEventListener('click', () => {
         currentIndex++; 
         renderCurrentQuestion(); 
-        window.scrollTo(0, 0); // 화면 맨 위로 스크롤
+        window.scrollTo(0, 0); 
       });
     }
 
-    // 채점 로직 (초록색/빨간색 표시)
+    // 채점 및 해설 노출 로직
     const choices = container.querySelectorAll('.choice');
     const explanationSection = container.querySelector('#explanation-section');
     const tapHint = container.querySelector('#tap-hint');
@@ -137,37 +130,30 @@ export function renderPractice(container) {
 
     choices.forEach(choice => {
       choice.addEventListener('click', function() {
-        if (isAnswered) return; // 한 번 정답을 고르면 중복 터치 방지
+        if (isAnswered) return; 
         isAnswered = true;
         
         const selectedIdx = parseInt(this.dataset.index);
         const correctIdx = parseInt(q.answer);
 
-        if (selectedIdx === correctIdx) {
-          // 정답일 때 (배경: 연한 초록, 테두리: 초록)
-          this.style.backgroundColor = '#e1f0e5'; 
-          this.style.borderColor = '#a3cfb6';
-          this.style.fontWeight = 'bold';
-        } else {
-          // 오답일 때 (배경: 연한 빨강, 테두리: 빨강)
-          this.style.backgroundColor = '#f8d7da';
-          this.style.borderColor = '#f5c6cb';
-          this.style.fontWeight = 'bold';
-          
-          // 사용자가 틀렸더라도 실제 정답 보기에는 초록색을 표시해 줌
-          const correctEl = container.querySelector(`.choice[data-index="${correctIdx}"]`);
-          if (correctEl) {
-            correctEl.style.backgroundColor = '#e1f0e5';
-            correctEl.style.borderColor = '#a3cfb6';
-            correctEl.style.fontWeight = 'bold';
-          }
+        // 실제 정답 요소에 solve.css의 .correct 클래스를 붙여서 초록색으로 만듦
+        const correctEl = container.querySelector(`.choice[data-index="${correctIdx}"]`);
+        if (correctEl) {
+          correctEl.classList.add('correct'); 
         }
 
-        // 터치 힌트 숨기고, 해설/정답 박스 표시
+        // 틀린 보기를 눌렀을 때는 인라인으로 연한 빨간색 표시 (solve.css에 오답 클래스가 없으므로)
+        if (selectedIdx !== correctIdx) {
+          this.style.backgroundColor = '#f8d7da';
+          this.style.borderColor = '#f5c6cb';
+          this.style.color = '#721c24';
+        }
+
+        // 힌트 가리고 정답&해설 박스 노출!
         if (tapHint) tapHint.style.display = 'none';
         explanationSection.style.display = 'block';
         
-        // 문제를 다 푼 후에만 [더 풀어보기] 버튼 활성화
+        // 더 풀어보기 버튼 활성화
         if (nextBtn) {
           nextBtn.style.opacity = '1';
           nextBtn.style.pointerEvents = 'auto';
@@ -176,6 +162,6 @@ export function renderPractice(container) {
     });
   }
 
-  // 화면 진입 시 첫 번째 문제를 그립니다.
+  // 첫 문제 렌더링
   renderCurrentQuestion();
 }
