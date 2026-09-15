@@ -17,21 +17,25 @@ export function renderPractice(container) {
     return;
   }
 
-  // 유사 문제 리스트 HTML 생성
+// 유사 문제 리스트 HTML 생성
   const listHtml = similarQuestions.map((q, index) => {
-    // 백엔드에서 '||' 기호로 붙여준 선택지를 배열로 분리하여 렌더링
     const choicesArray = q.choices ? q.choices.split('||').map(c => c.trim()) : [];
     const choicesHtml = choicesArray.map(c => `<div style="margin-bottom: 5px;">${c}</div>`).join('');
-
-    // 이미지가 있는 문제일 경우 이미지 태그 추가
     const imageHtml = q.has_image ? `<img src="${q.image_path}" alt="문제 이미지" style="width: 100%; max-width: 400px; margin: 10px 0;" />` : '';
+
+    // 백엔드에서 온 텍스트의 'A:', 'B:' 앞에 줄바꿈을 추가하고, 기존 줄바꿈(\n)도 HTML 태그로 변환
+    const formattedQuestion = q.question
+      .replace(/(A:|B:)/g, '<br>$1') 
+      .replace(/\n/g, '<br>');
 
     return `
       <div class="similar-card" style="border: 1px solid #e0e0e0; border-radius: 12px; padding: 20px; margin-bottom: 20px; background: #fff;">
         <p style="font-size: 0.85rem; color: #888; margin-bottom: 10px;">
           ${q.year}년 ${q.exam_round}회 검정고시 기출
         </p>
-        <p style="font-weight: bold; margin-bottom: 15px;">${index + 1}. ${q.question}</p>
+        <p style="font-weight: bold; margin-bottom: 15px; line-height: 1.6;">
+          ${index + 1}. ${formattedQuestion}
+        </p>
         
         ${imageHtml}
         
@@ -52,19 +56,8 @@ export function renderPractice(container) {
 
   container.innerHTML = `
     <div class="practice-screen" style="padding: 20px; background: #f0f4f8; min-height: 100vh;">
-      <div style="display: flex; align-items: center; margin-bottom: 25px;">
-        <button id="btn-back" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; padding-right: 15px;">
-          ❮ 뒤로 가기
-        </button>
-        <h2 style="margin: 0; font-size: 1.2rem;">비슷한 문제 풀어보기</h2>
-      </div>
-      
+      <h2 style="margin: 0 0 25px 0; font-size: 1.2rem; text-align: center;">비슷한 문제 풀어보기</h2>
       ${listHtml}
     </div>
   `;
-
-  // 뒤로 가기 버튼 이벤트 (해설 화면으로 복귀)
-  container.querySelector('#btn-back').addEventListener('click', () => {
-    navigate('/solve');
-  });
 }
