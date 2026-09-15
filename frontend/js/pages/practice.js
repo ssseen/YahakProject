@@ -5,25 +5,24 @@ export function renderPractice(container) {
   const state = getState();
   const similarQuestions = state.question?.similar_questions || [];
 
-  // 데이터가 없을 경우 예외 처리
+  // 데이터가 없을 경우 예외 처리 (상단 여백 추가로 글자 잘림 해결)
   if (similarQuestions.length === 0) {
     container.innerHTML = `
-      <div style="padding: 20px; text-align: center;">
+      <div style="padding: 120px 20px 0 20px; text-align: center;">
         <p>유사 문제를 불러오지 못했습니다.</p>
-        <button id="btn-back-empty" style="margin-top:20px; padding:10px 20px;">돌아가기</button>
+        <button id="btn-back-empty" style="margin-top:20px; padding:10px 20px; cursor:pointer;">돌아가기</button>
       </div>
     `;
     container.querySelector('#btn-back-empty').addEventListener('click', () => navigate('/solve'));
     return;
   }
 
-// 유사 문제 리스트 HTML 생성
+  // 유사 문제 리스트 HTML 생성
   const listHtml = similarQuestions.map((q, index) => {
     const choicesArray = q.choices ? q.choices.split('||').map(c => c.trim()) : [];
     const choicesHtml = choicesArray.map(c => `<div style="margin-bottom: 5px;">${c}</div>`).join('');
     const imageHtml = q.has_image ? `<img src="${q.image_path}" alt="문제 이미지" style="width: 100%; max-width: 400px; margin: 10px 0;" />` : '';
 
-    // 백엔드에서 온 텍스트의 'A:', 'B:' 앞에 줄바꿈을 추가하고, 기존 줄바꿈(\n)도 HTML 태그로 변환
     const formattedQuestion = q.question
       .replace(/(A:|B:)/g, '<br>$1') 
       .replace(/\n/g, '<br>');
@@ -54,6 +53,7 @@ export function renderPractice(container) {
     `;
   }).join('');
 
+  // solve.js와 완전히 동일한 하단 바 스타일 적용 (3개 버튼, 정확한 이미지 경로)
   container.innerHTML = `
     <div class="practice-screen" style="padding: 70px 20px 100px 20px; background: #f0f4f8; min-height: 100vh;">
       <h2 style="margin: 0 0 25px 0; font-size: 1.2rem; text-align: left; font-weight: bold;">비슷한 문제 풀어보기</h2>
@@ -61,7 +61,6 @@ export function renderPractice(container) {
     </div>
 
     <div class="bottom-nav-bar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #fff; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid #eee; z-index: 1000;">
-      
       <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
         <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
         <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
@@ -76,10 +75,33 @@ export function renderPractice(container) {
         <img src="image/replay_btn.svg" alt="" style="width: 24px; height: 24px;" />
         <span style="font-size: 0.8rem; margin-top: 4px;">다시 듣기</span>
       </button>
-
     </div>
   `;
+
   container.querySelector('#nav-home').addEventListener('click', () => {
     navigate('/');
+  });
+
+  // 음성 재생 토글 버튼 이벤트 (solve.js와 동일한 인터랙션)
+  const playToggleBtn = container.querySelector('#nav-play-toggle');
+  const playIcon = container.querySelector('#play-icon');
+  const playText = container.querySelector('#play-text');
+  let isPlaying = false; 
+
+  playToggleBtn.addEventListener('click', () => {
+    isPlaying = !isPlaying; 
+    if (isPlaying) {
+      playIcon.src = 'image/pause_btn.png';
+      playText.textContent = '일시 정지';
+      console.log('음성 재생 시작');
+    } else {
+      playIcon.src = 'image/play_btn.png';
+      playText.textContent = '음성 재생';
+      console.log('음성 일시 정지');
+    }
+  });
+
+  container.querySelector('#nav-replay').addEventListener('click', () => {
+    console.log('다시 듣기');
   });
 }

@@ -47,7 +47,7 @@ export function renderSolve(container) {
   // 백엔드 데이터가 아직 도착하지 않았을 때 로딩 문구 띄우기
   if (!data) {
     container.innerHTML = `
-      <div style="text-align:center; padding:100px 0; color:var(--color-text-muted); font-size:0.8rem;">
+      <div style="text-align:center; padding:120px 0; color:var(--color-text-muted); font-size:0.8rem;">
         문제 데이터를 불러오는 중입니다...
       </div>`;
     return;
