@@ -57,34 +57,28 @@ export function renderPractice(container) {
   container.innerHTML = `
     <div class="practice-screen" style="padding: 70px 20px 100px 20px; background: #f0f4f8; min-height: 100vh;">
       <h2 style="margin: 0 0 25px 0; font-size: 1.2rem; text-align: left; font-weight: bold;">비슷한 문제 풀어보기</h2>
-  
       ${listHtml}
     </div>
 
     <div class="bottom-nav-bar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #fff; display: flex; justify-content: space-around; padding: 10px 0; border-top: 1px solid #eee; z-index: 1000;">
+      
       <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
-        <img src="image/home_icon.svg" alt="" style="width: 24px; height: 24px;" />
+        <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
         <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
       </button>
       
-      <button id="nav-voice" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
-        <img src="image/voice_icon.svg" alt="" style="width: 24px; height: 24px;" />
-        <span style="font-size: 0.8rem; margin-top: 4px;">더 궁금해요</span>
-      </button>
-
       <button id="nav-play-toggle" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
         <img id="play-icon" src="image/play_btn.png" alt="" style="width: 24px; height: 24px;" />
         <span id="play-text" style="font-size: 0.8rem; margin-top: 4px;">음성 재생</span>
       </button>
 
       <button id="nav-replay" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
-        <img src="image/replay_icon.svg" alt="" style="width: 24px; height: 24px;" />
+        <img src="image/replay_btn.svg" alt="" style="width: 24px; height: 24px;" />
         <span style="font-size: 0.8rem; margin-top: 4px;">다시 듣기</span>
       </button>
+
     </div>
   `;
-
-  // '처음으로' 버튼 클릭 시 홈 화면으로 부드럽게 이동하도록 이벤트 연결
   container.querySelector('#nav-home').addEventListener('click', () => {
     navigate('/');
   });
