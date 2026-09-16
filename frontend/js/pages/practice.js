@@ -38,9 +38,13 @@ export function renderPractice(container) {
           <span>비슷한 문제 풀어보기</span>
         </div>
 
+        <!-- 1. 문제 아코디언 -->
         <div class="accordion open">
-          <!-- 거슬리던 '문제' 토글 버튼을 완전히 삭제하고, 상단 패딩(20px)으로 넉넉한 여백 확보 -->
-          <div class="accordion-body" style="border-top: none; padding-top: 20px;">
+          <button class="accordion-toggle" type="button" style="pointer-events: none;">
+            <span class="accordion-title"><img src="image/quiz_icon.svg" alt="" aria-hidden="true" /> 문제</span>
+          </button>
+          
+          <div class="accordion-body" style="border-top: none; padding-top: 10px;">
             ${q.year ? `<p style="font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 12px;">${q.year}년 ${q.exam_round}회 검정고시 기출</p>` : ''}
             
             <p class="pre-line" style="margin-bottom: 15px;">${formattedQuestion}</p>
@@ -60,6 +64,21 @@ export function renderPractice(container) {
           </div>
         </div>
 
+<!-- 전체 해석 보기 아코디언 -->
+        <div class="accordion accordion-translation">
+          <button class="accordion-toggle" type="button">
+            <span class="accordion-title"><img src="image/translate_icon.svg" alt="" aria-hidden="true" /> 전체 해석 보기</span>
+            <img src="image/view_btn.svg" alt="" aria-hidden="true" class="accordion-chevron" />
+          </button>
+          <p class="accordion-hint">
+            <img src="image/tap_hint_icon.svg" alt="" aria-hidden="true" /> 전체를 보시려면 화살표를 눌러주세요.
+          </p>
+          <div class="accordion-body">
+            <p class="translation-heading">지문 해석</p>
+            <p class="pre-line">${q.translation || '해석을 제공하지 않는 문제입니다.'}</p>
+          </div>
+        </div>
+        <!-- 3. 정답 및 해설 -->
         <div id="explanation-section" style="display: none;">
           <div class="explanation-box">
             <p class="explanation-label"><img src="image/solution_icon.svg" alt="" aria-hidden="true" /> 문제 해설</p>
@@ -72,6 +91,7 @@ export function renderPractice(container) {
           </div>
         </div>
 
+        <!-- 4. 하단 네비게이션 바 -->
         <div class="bottom-nav-bar" style="display: flex; justify-content: space-around; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee;">
           <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
             <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
@@ -93,6 +113,7 @@ export function renderPractice(container) {
   }
 
   function attachEventListeners(q) {
+    // 하단 바 이동 이벤트
     container.querySelector('#nav-home').addEventListener('click', () => {
       resetQuestionFlow();
       navigate('/');
@@ -107,6 +128,19 @@ export function renderPractice(container) {
       });
     }
 
+    // ★ 전체 해석 보기 아코디언 열고 닫기 이벤트 연결 ★
+    container.querySelectorAll('.accordion').forEach((acc) => {
+      const toggle = acc.querySelector('.accordion-toggle');
+      const chevron = acc.querySelector('.accordion-chevron');
+      if (toggle && chevron) { 
+        toggle.addEventListener('click', () => {
+          acc.classList.toggle('open');
+          chevron.src = acc.classList.contains('open') ? 'image/hide_btn.svg' : 'image/view_btn.svg';
+        });
+      }
+    });
+
+    // 문제 채점 이벤트
     const choices = container.querySelectorAll('.choice');
     const explanationSection = container.querySelector('#explanation-section');
     const tapHint = container.querySelector('#tap-hint');
