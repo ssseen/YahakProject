@@ -65,7 +65,7 @@ export function renderPractice(container) {
         </div>
 
 <!-- 전체 해석 보기 아코디언 -->
-        <div class="accordion accordion-translation">
+        <div id="translation-section" class="accordion accordion-translation" style="display: none;">
           <button class="accordion-toggle" type="button">
             <span class="accordion-title"><img src="image/translate_icon.svg" alt="" aria-hidden="true" /> 전체 해석 보기</span>
             <img src="image/view_btn.svg" alt="" aria-hidden="true" class="accordion-chevron" />
@@ -167,6 +167,10 @@ export function renderPractice(container) {
 
         if (tapHint) tapHint.style.display = 'none';
         explanationSection.style.display = 'block';
+        
+        // 추가: 정답을 고르면 전체 해석 보기 아코디언도 나타나게 함!
+        const translationSection = container.querySelector('#translation-section');
+        if (translationSection) translationSection.style.display = 'block';
         
         if (nextBtn) {
           nextBtn.style.opacity = '1';
