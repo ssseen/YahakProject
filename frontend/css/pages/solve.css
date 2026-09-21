@@ -92,7 +92,7 @@
   font-size: 0.7rem;
 }
 .accordion.open .accordion-body {
-  max-height: 600px;
+  max-height: 2000px;
   padding: 0 16px 16px;
 }
 
