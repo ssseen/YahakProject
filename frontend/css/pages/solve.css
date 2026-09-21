@@ -199,9 +199,9 @@
 }
 .passage-image {
   width: 300px;
-  height: 150px;
+  height: auto;
   max-width: 100%;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: var(--radius-lg);
   display: block;
 }
