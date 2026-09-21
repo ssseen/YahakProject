@@ -22,7 +22,7 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-const CIRCLED = ['①', '②', '③', '④', '⑤'];
+const CIRCLED = ['①', '②', '③', '④'];
 function formatAnswer(answer) {
   if (!answer) return '불러오는 중입니다.';
   if (answer.number != null && CIRCLED[answer.number - 1]) {
