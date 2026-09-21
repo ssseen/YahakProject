@@ -60,6 +60,7 @@ const MOCK_MATH = {
 
 function getDebugMock() {
   const query = window.location.hash.split('?')[1];
+  if (!query) return null;
   const mock = new URLSearchParams(query).get('mock');
   return mock === 'math' ? MOCK_MATH : null;
 }
@@ -91,23 +92,19 @@ container.innerHTML = `
       </button>
 
       <!-- 복구된 하단 네비게이션 바 -->
-      <div class="bottom-nav-bar" style="display: flex; justify-content: space-around; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee;">
-        <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
+      <div class="bottom-nav-bar" style="display: flex; justify-content: center; gap: 40px; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee;">
+        <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
           <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
           <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
         </button>
-        
-        <button id="nav-voice" onclick="window.location.hash='#/voice'" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
-          <img src="image/mic_btn.svg" alt="" style="width: 24px; height: 24px;" />
-          <span style="font-size: 0.8rem; margin-top: 4px;">더 궁금해요</span>
+
+        <!-- 재생/일시정지 버튼 토글 -->
+        <button id="nav-play-toggle" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
+          <img id="play-icon" src="image/pause_btn.png" alt="" style="width: 24px; height: 24px;" />
+          <span id="play-text" style="font-size: 0.8rem; margin-top: 4px;">일시 정지</span>
         </button>
 
-        <button id="nav-play-toggle" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
-          <img id="play-icon" src="image/play_btn.png" alt="" style="width: 24px; height: 24px;" />
-          <span id="play-text" style="font-size: 0.8rem; margin-top: 4px;">음성 재생</span>
-        </button>
-
-        <button id="nav-replay" style="display: flex; flex-direction: column; align-items: center; background: none; border: none;">
+        <button id="nav-replay" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
           <img src="image/replay_btn.svg" alt="" style="width: 24px; height: 24px;" />
           <span style="font-size: 0.8rem; margin-top: 4px;">다시 듣기</span>
         </button>
@@ -142,14 +139,16 @@ container.innerHTML = `
   const playToggleBtn = container.querySelector('#nav-play-toggle');
   const playIcon = container.querySelector('#play-icon');
   const playText = container.querySelector('#play-text');
-  let isPlaying = false; 
+  
+  // 초기 상태를 일시정지 상태(이미 재생 중임)로 세팅
+  let isPlaying = true; 
 
   playToggleBtn.addEventListener('click', () => {
     isPlaying = !isPlaying; 
     if (isPlaying) {
       playIcon.src = 'image/pause_btn.png';
       playText.textContent = '일시 정지';
-      console.log('음성 재생 시작');
+      console.log('음성 재생 계속');
     } else {
       playIcon.src = 'image/play_btn.png';
       playText.textContent = '음성 재생';
@@ -166,6 +165,7 @@ container.innerHTML = `
     navigate('/practice'); // 페이지 이동!
   });
 }
+
 function renderGuksagwa(data) {
   return `
     <div class="accordion open">
@@ -235,7 +235,7 @@ function renderEnglish(data) {
         ${data.translation.options && data.translation.options.length > 0 ? `
         <p class="translation-heading">보기 해석</p>
         <div class="choice-translation-list">
-          ${data.translation.options.map((opt) => `<p>${CIRCLED[opt.no - 1] || opt.no} ${escapeHtml(opt.text)}</p>`).join('')}
+          ${data.translation.options.map((opt) => `<p>${CIRCLED[opt.no - 1] || opt.no}${escapeHtml(opt.text)}</p>`).join('')}
         </div>
         ` : ''}
       </div>
