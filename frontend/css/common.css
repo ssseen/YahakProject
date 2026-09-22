@@ -213,6 +213,7 @@ button {
   align-items: center;
   gap: 4px;
   font-weight: var(--font-weight-bold);
+  color: var(--color-text) !important;
 }
 
 /* ===== 설정 모달 ===== */
@@ -345,4 +346,10 @@ button {
 
 .pre-line {
   white-space: pre-line; /* \n을 실제 줄바꿈으로 표시 (백엔드가 \n 포함해서 문자열을 줄 때 필요) */
+}
+
+button, a {
+  color: inherit !important;
+  -webkit-appearance: none; /* 사파리/아이폰용 방언 */
+  appearance: none;         /* 호환성을 위한 웹 표준어 */
 }

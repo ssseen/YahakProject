@@ -92,7 +92,7 @@
   font-size: 0.7rem;
 }
 .accordion.open .accordion-body {
-  max-height: 600px;
+  max-height: 2000px;
   padding: 0 16px 16px;
 }
 
@@ -199,9 +199,9 @@
 }
 .passage-image {
   width: 300px;
-  height: 150px;
+  height: auto;
   max-width: 100%;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: var(--radius-lg);
   display: block;
 }
@@ -420,4 +420,14 @@
 }
 .btn-similar-problem:active {
   opacity: 0.8;
+}
+/* 아이폰 브라우저가 버튼/링크 글자색을 파란색으로 강제 변경하는 것 방지 */
+button, a {
+  color: inherit; /* 부모 요소의 글자색을 그대로 물려받음 */
+}
+
+/* 만약 inherit으로 해결되지 않는다면 구체적으로 색상을 지정해 주세요 */
+.accordion-toggle, 
+.bottom-nav-bar button {
+  color: #333333; /* 다크 그레이 또는 원하는 검은색 계열 헥스 코드 */
 }
