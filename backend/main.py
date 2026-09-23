@@ -2,7 +2,7 @@ import base64
 import os
 import tempfile
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 # vision_processor.py에서 함수 직접 import
 from vision_processor import analyze_image
 from pipeline import run_pipeline
+from app.stt_client import SttError
+from app.stt_client import transcribe as transcribe_audio
 
 load_dotenv()
 
@@ -94,6 +96,22 @@ async def analyze(req: AnalyzeRequest):
 
     print("3. 해설 파이프라인 완료:", result.get("status"))
     return result
+
+
+@app.post("/transcribe")
+async def transcribe(audio_file: UploadFile = File(...)):
+    # 프론트(voice-processing.js)가 이미 이 URL/필드명으로 호출하도록 짜여있었음 -
+    # 팀원이 올린 whisper/whisper_backend.py(별도 Colab용 FastAPI 앱)를 이 계약에
+    # 맞춰 app/stt_client.py로 옮겨왔다.
+    audio_bytes = await audio_file.read()
+    print(f"1. 음성 수신: {audio_file.filename} ({len(audio_bytes)} bytes)")
+    try:
+        text = transcribe_audio(audio_bytes)
+    except SttError as e:
+        print("STT 오류:", e)
+        raise HTTPException(status_code=422, detail=str(e))
+    print(f"2. 인식 결과: {text!r}")
+    return {"text": text}
 
 
 if __name__ == "__main__":
