@@ -57,6 +57,8 @@ def build_records():
 
     has_small = "category_small" in col
     has_explanation = "explanation" in col
+    has_image_flag = "has_image" in col
+    has_image_path = "image_path" in col
 
     records = []
     for row in ws.iter_rows(min_row=2):
@@ -74,6 +76,8 @@ def build_records():
 
         metadata = {
             "original_id": str(row_id),
+            "question": question,
+            "choices": choices,
             "exam_type": row[col["exam_type"]].value or "",
             "subject": row[col["subject"]].value or "",
             "year": str(row[col["year"]].value or ""),
@@ -87,6 +91,10 @@ def build_records():
             metadata["category_small"] = row[col["category_small"]].value or ""
         if has_explanation:
             metadata["explanation"] = row[col["explanation"]].value or ""
+        if has_image_flag:
+            metadata["has_image"] = str(row[col["has_image"]].value or "0")
+        if has_image_path:
+            metadata["image_path"] = row[col["image_path"]].value or ""
 
         records.append({
             "id": ascii_id,
