@@ -87,7 +87,7 @@ container.innerHTML = `
 
       ${data.type === 'english' ? renderEnglish(data) : data.type === 'math' ? renderMath(data) : renderGuksagwa(data)}
       
-      <button type="button" class="btn-similar-problem" id="btn-similar">
+      <button type="button" class="btn-similar-problem" id="btn-similar" style="${data.type === 'math' ? 'display: none;' : ''}">
         비슷한 문제 풀어보기
       </button>
 
@@ -167,6 +167,38 @@ container.innerHTML = `
 }
 
 function renderGuksagwa(data) {
+  const rawText = data.problem_text || '문제를 불러오는 중입니다.';
+  let questionOnly = rawText;
+  let choicesArray = [];
+
+  // 지문 안에 ①~④ 보기가 포함되어 있으면 문제와 보기를 자동으로 분리!
+  if (/①/.test(rawText) && /②/.test(rawText)) {
+    const firstChoiceIdx = rawText.indexOf('①');
+    const extractedChoices = rawText
+      .slice(firstChoiceIdx)
+      .split(/(?=[①②③④⑤])/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    if (extractedChoices.length >= 2) {
+      choicesArray = extractedChoices;
+      questionOnly = rawText.slice(0, firstChoiceIdx).trim();
+    }
+  }s
+
+  // 영어 페이지처럼 보기 박스(.choice-list > .choice) 생성 및 정답 초록색 표시
+  let choicesHtml = '';
+  if (choicesArray.length > 0) {
+    const correctNum = data.answer && data.answer.number != null ? Number(data.answer.number) : null;
+    const items = choicesArray
+      .map((choiceText, idx) => {
+        const isCorrect = correctNum === idx + 1 ? 'correct' : '';
+        return '<div class="choice ' + isCorrect + '">' + escapeHtml(choiceText) + '</div>';
+      })
+      .join('');
+    choicesHtml = '<div class="choice-list">' + items + '</div>';
+  }
+
   return `
     <div class="accordion open">
       <button class="accordion-toggle" type="button">
@@ -175,7 +207,8 @@ function renderGuksagwa(data) {
       </button>
       ${renderAccordionHint()}
       <div class="accordion-body">
-        <p class="pre-line">${escapeHtml(data.problem_text || '문제를 불러오는 중입니다.')}</p>
+        <p class="pre-line">${escapeHtml(questionOnly)}</p>
+        ${choicesHtml}
         ${renderIllustration(data.illustration)}
       </div>
     </div>
@@ -268,6 +301,73 @@ function renderMath(data) {
   const steps = normalizeSteps(data.steps);
   const hasSteps = steps.length > 0;
   const startsRevealed = !hasSteps || steps.length === 1;
+  const answerVisibleClass = startsRevealed ? 'visible' : '';
+
+  const rawText = data.problem_text || '문제를 불러오는 중입니다.';
+  let questionOnly = rawText;
+  let choicesArray = [];
+
+  // 1) 백엔드에서 options 배열로 보기를 따로 보내준 경우
+  if (Array.isArray(data.options) && data.options.length > 0) {
+    choicesArray = data.options.map((opt, idx) => {
+      const text = typeof opt === 'string' ? opt : (opt.text || '');
+      const circle = CIRCLED[idx] || (idx + 1);
+      return /^[①②③④⑤]/.test(text.trim()) ? text.trim() : circle + ' ' + text.trim();
+    });
+  } else if (/①/.test(rawText) && /②/.test(rawText)) {
+    // 2) problem_text 지문 안에 ①~④ 보기가 섞여 있는 경우 자동 분리
+    const firstChoiceIdx = rawText.indexOf('①');
+    const extractedChoices = rawText
+      .slice(firstChoiceIdx)
+      .split(/(?=[①②③④⑤])/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+
+    if (extractedChoices.length >= 2) {
+      choicesArray = extractedChoices;
+      questionOnly = rawText.slice(0, firstChoiceIdx).trim();
+    }
+  }
+
+  // 보기 박스(.choice-list > .choice) 생성
+  let choicesHtml = '';
+  if (choicesArray.length > 0) {
+    const correctNum = data.answer && data.answer.number != null ? Number(data.answer.number) : null;
+    const items = choicesArray
+      .map((choiceText, idx) => {
+        const isCorrect = startsRevealed && correctNum === idx + 1 ? 'correct' : '';
+        return '<div class="choice ' + isCorrect + '" data-choice-idx="' + (idx + 1) + '">' + escapeHtml(choiceText) + '</div>';
+      })
+      .join('');
+    choicesHtml = '<div class="choice-list">' + items + '</div>';
+  }
+
+  let stepCardHtml = '';
+  if (hasSteps) {
+    const dotsHtml = steps.map((_, i) => '<span class="step-dot" data-i="' + i + '"></span>').join('');
+    stepCardHtml = `
+      <div class="step-card">
+        <p class="step-label">
+          <img src="image/solution_icon.svg" alt="" aria-hidden="true" /> 풀이 단계 <span id="step-counter">1 / ${steps.length}</span>
+        </p>
+        <div class="step-progress">${dotsHtml}</div>
+        <p class="step-text" id="step-text">${escapeHtml(steps[0].text)}</p>
+        <div class="step-controls">
+          <button class="btn btn-secondary" id="step-prev" type="button">← 이전</button>
+          <button class="btn btn-secondary" id="step-next" type="button">다음 →</button>
+        </div>
+      </div>
+    `;
+  } else {
+    stepCardHtml = `
+      <div class="step-card">
+        <p class="step-label">
+          <img src="image/solution_icon.svg" alt="" aria-hidden="true" /> 풀이 단계
+        </p>
+        <p class="step-text">풀이를 불러오는 중입니다.</p>
+      </div>
+    `;
+  }
 
   return `
     <div class="accordion open">
@@ -277,37 +377,16 @@ function renderMath(data) {
       </button>
       ${renderAccordionHint()}
       <div class="accordion-body">
-        <p class="pre-line">${escapeHtml(data.problem_text || '문제를 불러오는 중입니다.')}</p>
+        <p class="pre-line">${escapeHtml(questionOnly)}</p>
         ${renderMathQuestionImage(data.questionImage)}
+        ${choicesHtml}
       </div>
     </div>
 
     ${renderMathExplanationImageBox(data.explanationImage)}
+    ${stepCardHtml}
 
-    ${hasSteps ? `
-    <div class="step-card">
-      <p class="step-label">
-        <img src="image/solution_icon.svg" alt="" aria-hidden="true" /> 풀이 단계 <span id="step-counter">1 / ${steps.length}</span>
-      </p>
-      <div class="step-progress">
-        ${steps.map((_, i) => `<span class="step-dot" data-i="${i}"></span>`).join('')}
-      </div>
-      <p class="step-text" id="step-text">${escapeHtml(steps[0].text)}</p>
-      <div class="step-controls">
-        <button class="btn btn-secondary" id="step-prev" type="button">← 이전</button>
-        <button class="btn btn-secondary" id="step-next" type="button">다음 →</button>
-      </div>
-    </div>
-    ` : `
-    <div class="step-card">
-      <p class="step-label">
-        <img src="image/solution_icon.svg" alt="" aria-hidden="true" /> 풀이 단계
-      </p>
-      <p class="step-text">풀이를 불러오는 중입니다.</p>
-    </div>
-    `}
-
-    <div class="answer-box ${startsRevealed ? 'visible' : ''}" id="answer-section">
+    <div class="answer-box ${answerVisibleClass}" id="answer-section">
       <p><img src="image/answer_icon.svg" alt="" aria-hidden="true" /> 정답</p>
       <p class="answer-value">${formatAnswer(data.answer)}</p>
     </div>
@@ -323,13 +402,27 @@ function setupMathSteps(container, data) {
   const stepCounter = container.querySelector('#step-counter');
   const dots = container.querySelectorAll('.step-dot');
   const answerSection = container.querySelector('#answer-section');
+  const similarBtn = container.querySelector('#btn-similar');
+  const correctNum = data.answer && data.answer.number != null ? Number(data.answer.number) : null;
 
   function updateStep() {
     stepText.textContent = steps[stepIndex].text;
-    stepCounter.textContent = `${stepIndex + 1} / ${steps.length}`;
+    stepCounter.textContent = (stepIndex + 1) + ' / ' + steps.length;
     dots.forEach((d, i) => d.classList.toggle('active', i <= stepIndex));
     const isLastStep = stepIndex === steps.length - 1;
+
+    // 마지막 단계에서만 정답 박스, 유사문제 버튼, 보기 초록색(.correct) 표시!
     answerSection.classList.toggle('visible', isLastStep);
+    if (similarBtn) {
+      similarBtn.style.display = isLastStep ? 'flex' : 'none';
+    }
+    if (correctNum != null) {
+      const correctChoiceEl = container.querySelector('.choice[data-choice-idx="' + correctNum + '"]');
+      if (correctChoiceEl) {
+        correctChoiceEl.classList.toggle('correct', isLastStep);
+      }
+    }
+
     container.querySelector('#step-next').classList.toggle('is-last', isLastStep);
     stepCounter.classList.toggle('is-last', isLastStep);
   }

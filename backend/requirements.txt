@@ -10,3 +10,9 @@ python-multipart
 pinecone
 pytest
 easyocr
+
+# STT (app/stt_client.py, POST /transcribe) - 로컬 전용, requirements-cloudrun.txt엔 안 넣음
+# (easyocr의 torch와 같은 이유: 용량이 커서 배포 이미지를 무겁게 만듦)
+transformers
+peft
+av

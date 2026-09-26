@@ -117,6 +117,7 @@ v1(예전)은 Gemini를 두 번(OCR용 1차 + 해설용 2차) 불렀는데, v2�
 | `app/clova_client.py` | Clova 호출 + 정규화. **EXIF 회전 보정 포함** (아래 버그 1번 참고) |
 | `app/question_locator.py` | 문항 특정. 번호 앵커 탐지 → 앵커 위치로 컬럼 구분 → 손끝 최근접 줄로 밴드 판정 |
 | `app/subject_router.py` | 과목 판정 + 유사문제 선별 |
+| `app/stt_client.py` | 사투리 인식 Whisper STT (`POST /transcribe`), 10번 섹션 참고 |
 | `classifier.py` | v1 전용(필터 검색). v2 `pipeline.py`는 더 이상 안 씀, 참고용으로 남아있음 |
 | `guksagwa_explainer.py` / `english_explainer.py` | Gemini 2차 해설 생성 |
 | `gemini_config.py` | Gemini 모델 클라이언트 공용 설정 |
@@ -390,3 +391,55 @@ v1(예전)은 Gemini를 두 번(OCR용 1차 + 해설용 2차) 불렀는데, v2�
 - 원본 명세서: `야학_파이프라인v2_명세서.md`, `클로드코드_프롬프트_모음.md`
   (P1~P8 각 단계의 상세 요구사항·완료조건이 적혀있던 문서. 사용자가 대화 중 직접
   붙여넣어 준 것이라 파일로는 없을 수 있음 — 필요하면 사용자에게 다시 요청할 것).
+
+---
+
+## 10. STT(사투리 인식 Whisper) 연동 (2026-09-23)
+
+**배경**: 팀원이 `whisper/` 폴더(레포 루트, `backend/` 밖)에 사투리 인식 파인튜닝
+결과물을 올림 — `openai/whisper-small` 베이스에 peft LoRA(0.20.0, r=32, target
+q_proj/v_proj)를 적용한 어댑터(`adapter_config.json`/`adapter_model.safetensors`),
+그리고 그걸 서빙하는 **완전히 독립된** FastAPI 앱(`whisper/whisper_backend.py`)이
+같이 왔다. 프론트(`frontend/js/pages/voice-processing.js`)는 이미 이걸 염두에 두고
+`http://localhost:8000/transcribe`에 `audio_file` 필드로 오디오를 보내도록 짜여
+있었다 — 즉 계약은 이미 정해져 있었고, 실제로 그 포트/경로를 응답하는 서버가
+없었을 뿐이었다.
+
+**연동 방식**: `whisper/whisper_backend.py`를 그대로 실행하지 않고(포트 8000이
+`main.py`와 겹치는 것도 문제지만, 그보다 이 파일 자체가 Colab 전용 —
+`MODEL_PATH`가 Google Drive 경로로 하드코딩, `.to("cuda")` 고정이라 로컬에서
+그대로 못 돌림), 로직만 `backend/app/stt_client.py`로 옮기고 `main.py`에
+`POST /transcribe`를 새로 추가해 프론트가 이미 기대하던 계약을 그대로 채웠다.
+- 프로세서(피처추출기+토크나이저)는 `whisper/` 폴더가 아니라 베이스 모델
+  (`openai/whisper-small`)에서 받는다 — LoRA가 q_proj/v_proj만 건드려 어휘는
+  안 바뀌고, `whisper/`엔 애초에 토크나이저 파일 자체가 없다
+  (`preprocessor_config.json`만 있고 `vocab.json`/`merges.txt` 등은 없음 — Colab
+  체크포인트를 GitHub에 전부 올리지 않은 것으로 보임).
+- device는 `torch.cuda.is_available()`로 자동 감지(로컬 개발 PC는 GPU 없음 → CPU).
+- 모델 로딩(torch+transformers, 수 초~수십 초)은 `_load()`에서 첫 `/transcribe`
+  호출 시점에만 지연 실행 — `/api/analyze` 쪽 흐름엔 전혀 영향 없고, torch/
+  transformers/peft를 `requirements-cloudrun.txt`에 넣지 않았기 때문에(용량 문제,
+  easyocr/torch와 같은 이유) 클라우드 배포 환경에서도 앱 자체는 정상 기동하게
+  `stt_client.py`의 무거운 import를 파일 최상단이 아니라 `_load()` 안에 뒀다.
+- 브라우저 `MediaRecorder`가 보내는 오디오는 `audio/webm`(opus) 컨테이너인데,
+  `librosa`/`audioread`로 이걸 디코딩하려면 시스템에 ffmpeg가 설치돼 있어야
+  한다(이 개발 PC엔 없었음). 시스템 설치 없이 되도록 `PyAV`(`av` 패키지,
+  ffmpeg 라이브러리를 wheel에 정적 포함)로 디코딩하도록 `_decode_audio()`를 짬.
+- 검증: 실제 마이크 녹음 대신 PyAV로 생성한 합성 webm(사인파 톤) 오디오를
+  `TestClient`로 `/transcribe`에 흘려서 200 응답 + `{"text": ...}` 구조까지는
+  확인함. 사인파라 내용 자체는 의미 없는 문자열이 나왔음(당연함) — **실제 음성
+  정확도는 아직 검증 안 됨**, 다음에 실제 사투리 녹음으로 한 번 테스트해볼 것.
+
+**환경 이슈(중요, 다음에 또 겪을 수 있음)**: 기존 `backend/venv`가 아나콘다
+(`C:\Users\<user>\anaconda3\python.exe`)를 베이스로 만들어져 있었는데, 아나콘다가
+자체 번들한 구버전 `msvcp140.dll`(v14.29, VS2019 시절)이 시스템의 최신 버전
+(v14.50)보다 먼저 로드되면서 torch 2.14의 네이티브 DLL(`c10.dll`)이 `WinError
+1114`(DLL 초기화 실패)로 죽었다 — Windows 이벤트 로그(`Get-WinEvent`)로 크래시
+프로세스 경로가 실제로 `anaconda3\python.exe`/`anaconda3\msvcp140.dll`임을 확인해
+찾아냄. **해결**: `backend/venv`를 아나콘다가 아니라 별도로 깔려 있던 Windows
+Store/python.org 계열 Python 3.11(`py -0p`로 확인,
+`...WindowsApps\PythonSoftwareFoundation.Python.3.11_...\python.exe`)로 새로
+만듦 — 이걸로는 torch가 정상 로드됨(검증 완료). **교훈**: 이 프로젝트에서 torch가
+필요한 작업(STT, 또는 나중에 easyocr 관련 실험)을 새 컴퓨터에서 다시 세팅할 때
+`python -m venv`에 쓰는 인터프리터가 아나콘다면 이 문제가 재발할 수 있다 —
+`py -0p`로 아나콘다가 아닌 인터프리터를 찾아 그걸로 venv를 만들 것.

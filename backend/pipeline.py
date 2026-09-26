@@ -470,7 +470,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
         low_conf_lines=low_conf_lines or None,
         subject_hint=subject_hint,
         category=category,
-        transcript=stt_text,
+        transcript=stt_text or user_question,  # <-- stt_text가 비어있으면 user_question을 그대로 전달!
         reference=reference,
     )
 
