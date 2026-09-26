@@ -119,24 +119,24 @@ button {
   font-size: 1rem;
 }
 
-/* --- 설정 버튼 --- */
+/* --- 설정 버튼 (크기 확대) --- */
 .settings-btn {
-  width: 65px;
-  height: 27px;
+  width: 82px;       /* 기존 65px -> 82px */
+  height: 36px;      /* 기존 27px -> 36px */
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   border-radius: 30px;
   background-color: #D5DAE7;
   box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25);
   color: #1A1A1A;
-  font-size: 0.6rem;
-  font-weight: 800; /* 시안처럼 또렷하게 보이도록 볼드 처리 */
+  font-size: 0.75rem; /* 기존 0.6rem -> 0.75rem */
+  font-weight: 800;
 }
 
 .settings-btn img {
-  height: 14px; /* 27px 버튼 높이에 맞춰 아이콘 크기 조정 */
+  height: 18px;      /* 기존 14px -> 18px */
   width: auto;
   display: block;
 }
@@ -349,7 +349,14 @@ button {
 }
 
 button, a {
-  color: inherit !important;
-  -webkit-appearance: none; /* 사파리/아이폰용 방언 */
-  appearance: none;         /* 호환성을 위한 웹 표준어 */
+  color: var(--color-text);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* 파란 배경 버튼들은 무조건 흰색 글씨로 고정! */
+.btn-primary, 
+#pick-photo-btn, 
+#take-photo-btn {
+  color: #FFFFFF !important;
 }
