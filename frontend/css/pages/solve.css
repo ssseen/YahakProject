@@ -428,3 +428,18 @@ button, a {
 .bottom-nav-bar button {
   color: #333333;
 }
+/* ===== TTS 문장 하이라이트 및 클릭 재생 ===== */
+.tts-sentence {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 1px 2px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.tts-sentence:hover {
+  background-color: rgba(57, 97, 200, 0.1);
+}
+.tts-sentence.active {
+  background-color: #FFE066;
+  color: #000000;
+  font-weight: var(--font-weight-bold);
+}

@@ -1,8 +1,6 @@
 import { navigate } from '../router.js';
 import { getState, setState } from '../state.js';
 
-// 이 페이지는 촬영 가이드 → (플래시) → 로딩 → 성공/실패의 4단계를 자체 상태로 관리한다.
-
 const DEBUG_STEPS = ['guide', 'loading', 'success', 'error'];
 
 function getDebugStep() {
@@ -12,14 +10,11 @@ function getDebugStep() {
 }
 
 export function renderPhotoProcessing(container) {
-  // 메뉴에서 "문제 사진 가져오기"로 이미 파일을 골라둔 상태면, 카메라를 켤 필요 없이
-  // 바로 로딩(인식) 단계로 건너뛴다. "문제 사진 찍기"를 눌렀으면 photo는 null이라
-  // 정상적으로 guide(카메라 화면)부터 시작한다.
   const pickedPhoto = getState().photo;
   let step = getDebugStep() || (pickedPhoto && pickedPhoto.blob ? 'loading' : 'guide');
-  let stream = null; // 현재 켜진 카메라 스트림 - 화면 벗어날 때 반드시 꺼줘야 함
+  let stream = null;
   let torchOn = false;
-  let errorMessage = '사진을 인식하지 못했어요.\n다시 찍어주세요'; // 백엔드가 준 message로 매번 갱신됨
+  let errorMessage = '사진을 인식하지 못했어요.\n다시 찍어주세요';
 
   function render() {
     if (step === 'guide') renderGuide();
@@ -28,7 +23,6 @@ export function renderPhotoProcessing(container) {
     else renderError();
   }
 
-  // 스트림을 반드시 꺼주는 헬퍼 - guide 단계를 벗어날 때마다 호출
   function stopStream() {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
@@ -71,12 +65,11 @@ export function renderPhotoProcessing(container) {
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }, // 모바일에서 후면 카메라 우선
+        video: { facingMode: 'environment' },
         audio: false,
       });
       video.srcObject = stream;
 
-      // 플래시(torch) 지원 여부 확인 - 지원 기기(주로 안드로이드 크롬)에서만 버튼 노출
       const [track] = stream.getVideoTracks();
       const capabilities = track.getCapabilities ? track.getCapabilities() : {};
       if (capabilities.torch) {
@@ -93,7 +86,6 @@ export function renderPhotoProcessing(container) {
         });
       }
     } catch (err) {
-      // 카메라 권한 거부 / 카메라 없음 등 - 바로 에러 화면으로
       console.error('카메라 접근 실패:', err);
       step = 'error';
       render();
@@ -104,13 +96,11 @@ export function renderPhotoProcessing(container) {
   }
 
   function capture(video) {
-    // 촬영 순간 플래시
     const flash = document.createElement('div');
     flash.className = 'camera-flash';
     container.querySelector('.camera-screen').appendChild(flash);
     setTimeout(() => flash.remove(), 250);
 
-    // 현재 비디오 프레임을 캔버스에 그려서 이미지로 추출
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
@@ -120,18 +110,17 @@ export function renderPhotoProcessing(container) {
       const previewUrl = URL.createObjectURL(blob);
       setState({ photo: { blob, previewUrl } });
 
-      stopStream(); // 캡처 끝났으니 카메라 스트림은 바로 꺼줌
+      stopStream();
 
       setTimeout(() => {
         step = 'loading';
         render();
-        // TODO: 실제 사진 업로드 + 인식 API 호출
         uploadPhoto(blob);
       }, 150);
     }, 'image/jpeg', 0.9);
   }
 
-  const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app'; // Cloud Run 배포 주소 (2026-09-14)
+  const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app';
 
   function blobToDataUri(blob) {
     return new Promise((resolve, reject) => {
@@ -146,6 +135,9 @@ export function renderPhotoProcessing(container) {
     let dataUri;
     try {
       dataUri = await blobToDataUri(blob);
+      // 나중에 음성 페이지(voice-processing.js)에서 이미지와 음성을 동시에 보낼 수 있도록 dataUri 저장!
+      const currentPhoto = getState().photo || {};
+      setState({ photo: { ...currentPhoto, blob, dataUri } });
     } catch (err) {
       console.error('이미지 변환 실패:', err);
       errorMessage = '사진을 처리하지 못했어요.\n다시 찍어주세요';
@@ -156,14 +148,12 @@ export function renderPhotoProcessing(container) {
 
     let res;
     try {
-      res = await fetch(`${API_BASE}/api/analyze`, {
+      res = await fetch(API_BASE + '/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // userQuestion은 STT 미연동 상태라 생략 (백엔드 기본 문구 사용)
-        body: JSON.stringify({ image: dataUri }),
+        body: JSON.stringify({ image: dataUri, checkOnly: true }),
       });
     } catch (err) {
-      // 네트워크 오류 / CORS / 서버 미기동
       console.error('네트워크 오류:', err);
       errorMessage = '서버에 연결할 수 없어요.\n잠시 후 다시 시도해주세요';
       step = 'error';
@@ -171,10 +161,9 @@ export function renderPhotoProcessing(container) {
       return;
     }
 
-    // ① HTTP 상태 먼저 확인 (422/500은 body에 status 필드가 없음)
     if (!res.ok) {
       const detail = await res.text();
-      console.error(`HTTP ${res.status}`, detail);
+      console.error('HTTP ' + res.status, detail);
       errorMessage = '잠시 문제가 생겼어요.\n다시 시도해주세요';
       step = 'error';
       render();
@@ -183,18 +172,24 @@ export function renderPhotoProcessing(container) {
 
     const data = await res.json();
 
-    // ② status 필드로 분기
     switch (data.status) {
+      case 'checked':
+        // 화질 검증 통과 -> 아직 제미나이는 안 돌렸으므로 question은 비워두고 음성 페이지로 이동
+        setState({ question: null });
+        step = 'success';
+        render();
+        setTimeout(() => navigate('/voice'), 700);
+        break;
+
       case 'success':
-        setState({ question: data }); // guksagwa/english 원본 구조 그대로 저장 - solve.js가 이 형태를 직접 소비함
+        // 구버전 서버 응답인 경우 일단 저장해두되, 음성 질문을 하면 다시 덮어씀
+        setState({ question: data });
         step = 'success';
         render();
         setTimeout(() => navigate('/voice'), 700);
         break;
 
       case 'retake':
-        // "사진이 너무 흔들렸어요..." 등 - blur_score는 읽지 않음. data.message가 없는 경우를
-        // 대비한 폴백 필수 - 없으면 화면에 문자 그대로 "undefined"가 찍힌다(실사용 중 발견).
         errorMessage = data.message || '사진을 인식하지 못했어요.\n다시 찍어주세요';
         step = 'error';
         render();
@@ -250,7 +245,6 @@ export function renderPhotoProcessing(container) {
 
   render();
 
-  // 이미 골라둔 사진이 있어서 loading으로 바로 시작한 경우, 인식 요청도 바로 시작
   if (step === 'loading' && pickedPhoto && pickedPhoto.blob) {
     uploadPhoto(pickedPhoto.blob);
   }

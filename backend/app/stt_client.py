@@ -116,7 +116,12 @@ def transcribe(audio_bytes: bytes) -> str:
     ).input_features.to(_device)
 
     with torch.no_grad():
-        predicted_ids = _model.generate(inputs)
+        # 한국어(ko) 전사(transcribe) 모드를 강제하여 사투리/짧은 발화 오인식 방지
+        predicted_ids = _model.generate(
+            inputs,
+            language="ko",
+            task="transcribe",
+        )
 
     text = _processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
     return text.strip()

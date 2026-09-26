@@ -184,7 +184,7 @@ function renderGuksagwa(data) {
       choicesArray = extractedChoices;
       questionOnly = rawText.slice(0, firstChoiceIdx).trim();
     }
-  }
+  }s
 
   // 영어 페이지처럼 보기 박스(.choice-list > .choice) 생성 및 정답 초록색 표시
   let choicesHtml = '';
