@@ -64,7 +64,12 @@ export function renderPractice(container) {
     const isLastQuestion = currentIndex === similarQuestions.length - 1;
 
     const { questionText, choicesArray } = parseQuestionAndChoices(q);
-    const formattedQuestion = questionText.replace(/\s*(A:|B:)/g, '\n$1').trim().replace(/\n+/g, '<br>');
+    const formattedQuestion = questionText
+      .replace(/\s*(A:|B:)/g, '\n$1')
+      .trim()
+      // 첫 번째 질문(? 또는 ~시오.) 뒤에 본문이 이어지면 빈 줄(<br><br>)로 구별!
+      .replace(/^(.*?(?:\?|고르시오\.|답하시오\.))\s+([\s\S]+)$/, '<strong>$1</strong><br><br>$2')
+      .replace(/\n+/g, '<br>');
     const imageHtml = q.has_image ? `<div class="passage-image-wrap"><img src="${q.image_path}" alt="문제 이미지" class="passage-image" /></div>` : '';
 
     const correctIdx = parseInt(q.answer);
@@ -118,7 +123,7 @@ export function renderPractice(container) {
         </div>
 
         <!-- 3. 하단 네비게이션 바 (화면 하단 고정) -->
-        <div class="bottom-nav-bar" style="position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 360px; background: var(--color-bg); z-index: 40; display: flex; justify-content: space-around; padding: 10px 0 16px; border-top: 1px solid var(--color-border);">
+        <div class="bottom-nav-bar">
           <button id="nav-home" style="display: flex; flex-direction: column; align-items: center; background: none; border: none; cursor: pointer;">
             <img src="image/home_btn.svg" alt="" style="width: 24px; height: 24px;" />
             <span style="font-size: 0.8rem; margin-top: 4px;">처음으로</span>
