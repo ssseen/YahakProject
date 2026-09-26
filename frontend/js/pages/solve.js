@@ -80,32 +80,9 @@ function getSpeechRateValue() {
   return 0.95;
 }
 
-const MOCK_MATH = {
-  status: 'success',
-  type: 'math',
-  subject: '수학',
-  problem_type: '도형 > 원의 넓이',
-  problem_text: '아래 그림과 같이 반지름이 5cm인 원이 있다.\n이 원의 넓이를 구하시오. (단, 원주율은 3이다.)',
-  questionImage: null,
-  explanationImage: null,
-  steps: [
-    { text: '원의 넓이 공식은 반지름 × 반지름 × 원주율입니다.' },
-    { text: '반지름 5cm를 대입하면 5 × 5 × 3 = 75 입니다.' },
-    { text: '따라서 원의 넓이는 75cm² 입니다.' },
-  ],
-  answer: { number: 1, text: '75cm²' },
-};
-
-function getDebugMock() {
-  const query = window.location.hash.split('?')[1];
-  if (!query) return null;
-  const mock = new URLSearchParams(query).get('mock');
-  return mock === 'math' ? MOCK_MATH : null;
-}
-
 export function renderSolve(container) {
   const state = getState();
-  const data = getDebugMock() || state.question;
+  const data = state.question;
 
   if (!data) {
     container.innerHTML = `
