@@ -89,7 +89,7 @@ def decide_branch(matches, query_text: str) -> BranchResult:
     subject_hint = raw_subject_votes.most_common(1)[0][0] if raw_subject_votes else None
 
     guard = None
-    if latin_ratio(query_text) > 0.6 and branch != "영어":
+    if latin_ratio(query_text) > 0.6 and math_hits(query_text) < 3 and branch != "영어":
         branch = "영어"
         guard = "latin_override"
     elif len(query_text.strip()) < 30 or agreement < 0.5:
