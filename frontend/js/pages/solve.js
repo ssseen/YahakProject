@@ -87,7 +87,7 @@ container.innerHTML = `
 
       ${data.type === 'english' ? renderEnglish(data) : data.type === 'math' ? renderMath(data) : renderGuksagwa(data)}
       
-      <button type="button" class="btn-similar-problem" id="btn-similar">
+      <button type="button" class="btn-similar-problem" id="btn-similar" style="${data.type === 'math' ? 'display: none;' : ''}">
         비슷한 문제 풀어보기
       </button>
 
@@ -323,13 +323,17 @@ function setupMathSteps(container, data) {
   const stepCounter = container.querySelector('#step-counter');
   const dots = container.querySelectorAll('.step-dot');
   const answerSection = container.querySelector('#answer-section');
+  const similarBtn = container.querySelector('#btn-similar'); // 추가
 
   function updateStep() {
     stepText.textContent = steps[stepIndex].text;
-    stepCounter.textContent = `${stepIndex + 1} / ${steps.length}`;
+    stepCounter.textContent = `${stepIndex + 1} /${steps.length}`;
     dots.forEach((d, i) => d.classList.toggle('active', i <= stepIndex));
     const isLastStep = stepIndex === steps.length - 1;
     answerSection.classList.toggle('visible', isLastStep);
+    if (similarBtn) {
+      similarBtn.style.display = isLastStep ? 'flex' : 'none'; // 마지막 단계에서만 버튼 표시
+    }
     container.querySelector('#step-next').classList.toggle('is-last', isLastStep);
     stepCounter.classList.toggle('is-last', isLastStep);
   }

@@ -53,7 +53,7 @@ html, body {
 }
 
 html {
-    font-size: calc(20px * var(--font-size-scale));
+  font-size: calc(20px * var(--font-size-scale));
 }
 
 body {
@@ -121,8 +121,8 @@ button {
 
 /* --- 설정 버튼 (크기 확대) --- */
 .settings-btn {
-  width: 82px;       /* 기존 65px -> 82px */
-  height: 36px;      /* 기존 27px -> 36px */
+  width: 82px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -131,17 +131,16 @@ button {
   background-color: #D5DAE7;
   box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25);
   color: #1A1A1A;
-  font-size: 0.75rem; /* 기존 0.6rem -> 0.75rem */
+  font-size: 0.75rem;
   font-weight: 800;
 }
 
 .settings-btn img {
-  height: 18px;      /* 기존 14px -> 18px */
+  height: 18px;
   width: auto;
   display: block;
 }
 
-/* 누를 때 자연스럽게 눌리는 애니메이션 효과 */
 .settings-btn:active {
   transform: scale(0.95);
   background-color: #cdd2df;
@@ -175,7 +174,7 @@ button {
 .dot:nth-of-type(2) { animation-delay: 0.15s; }
 .dot:nth-of-type(3) { animation-delay: 0.3s; }
  
-/* 화면 전환 트랜지션 - router.js가 아래 클래스를 붙였다 뗌 */
+/* 화면 전환 트랜지션 - transform: none으로 끝나야 내부의 position: fixed(하단바)가 풀리지 않음! */
 .page-enter-right {
   animation: slide-in-right 0.28s ease forwards;
 }
@@ -184,11 +183,11 @@ button {
 }
 @keyframes slide-in-right {
   from { transform: translateX(24px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  to { transform: none; opacity: 1; }
 }
 @keyframes slide-in-left {
   from { transform: translateX(-24px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  to { transform: none; opacity: 1; }
 }
 
 /* ===== 헤더 ===== */
@@ -214,6 +213,24 @@ button {
   gap: 4px;
   font-weight: var(--font-weight-bold);
   color: var(--color-text) !important;
+}
+
+/* ===== 하단 고정 네비게이션 바 (해설 & 유사문제 페이지 공통 강제 고정) ===== */
+.bottom-nav-bar {
+  position: fixed !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  width: 100% !important;
+  max-width: 360px !important;
+  margin: 0 auto !important;
+  padding: 10px 0 16px !important;
+  background: var(--color-bg) !important;
+  border-top: 1px solid var(--color-border) !important;
+  z-index: 50 !important;
+  display: flex !important;
+  justify-content: space-around !important;
+  align-items: center !important;
 }
 
 /* ===== 설정 모달 ===== */
@@ -297,7 +314,7 @@ button {
   border: 0.5px solid var(--color-neutral);
   border-radius: var(--radius-sm);
   background-color: #FFF;
-  color: var(--color-text);
+  color: var(--color-text) !important;
 }
 
 #test-speed-btn img {
@@ -305,7 +322,7 @@ button {
   height: 21px;
 }
 
-/* ===== 로딩/성공/에러 화면 공용 (사진, 음성 페이지가 같은 클래스명을 씀) ===== */
+/* ===== 로딩/성공/에러 화면 공용 ===== */
 .state-screen {
   background: var(--color-bg);
   color: var(--color-text);
@@ -345,7 +362,7 @@ button {
 }
 
 .pre-line {
-  white-space: pre-line; /* \n을 실제 줄바꿈으로 표시 (백엔드가 \n 포함해서 문자열을 줄 때 필요) */
+  white-space: pre-line;
 }
 
 button, a {
@@ -354,8 +371,8 @@ button, a {
   appearance: none;
 }
 
-/* 파란 배경 버튼들은 무조건 흰색 글씨로 고정! */
-.btn-primary, 
+/* 파란 배경 버튼들은 무조건 흰색 글씨로 고정! (설정 닫기 버튼 제외) */
+.btn-primary:not(#close-modal-btn), 
 #pick-photo-btn, 
 #take-photo-btn {
   color: #FFFFFF !important;
