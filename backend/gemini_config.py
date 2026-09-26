@@ -19,7 +19,10 @@ def get_model(name="gemini-3.6-flash", json_mode=False):
     if key not in _MODEL_CACHE:
         kwargs = {}
         if json_mode:
-            kwargs["generation_config"] = {"response_mime_type": "application/json"}
+            kwargs["generation_config"] = {
+                "response_mime_type": "application/json",
+                "temperature": 0.2,
+            }
         _MODEL_CACHE[key] = genai.GenerativeModel(name, **kwargs)
     return _MODEL_CACHE[key]
 

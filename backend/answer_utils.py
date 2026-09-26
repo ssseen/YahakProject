@@ -36,7 +36,7 @@ _LEADING_MARKER_RE = re.compile(
     re.VERBOSE,
 )
 _INLINE_CIRCLED_RE = re.compile(r"[①②③④⑤⑥⑦⑧⑨]")
-_LEADING_SEP_RE = re.compile(r"^[,.:\-\s]+")
+_LEADING_SEP_RE = re.compile(r"^(?:[,.:\s]|-(?!\d))+")
 _PLAIN_INT_RE = re.compile(r"^\d{1,2}$")
 
 

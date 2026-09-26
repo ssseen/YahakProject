@@ -4,6 +4,7 @@ import tempfile
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -14,6 +15,10 @@ from pipeline import run_pipeline
 load_dotenv()
 
 app = FastAPI()
+
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+os.makedirs(os.path.join(_STATIC_DIR, "diagrams"), exist_ok=True)
+app.mount("/diagrams", StaticFiles(directory=os.path.join(_STATIC_DIR, "diagrams")), name="diagrams")
 
 # CORS 설정 (프론트 localhost:5173, VSCode Live Server 127.0.0.1:5500 허용)
 app.add_middleware(
