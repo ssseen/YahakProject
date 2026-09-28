@@ -1,5 +1,5 @@
 """
-국어/사회/과학(국사과)/영어 해설 파이프라인 - 엔드투엔드 오케스트레이션. v2.
+국어/사회/과학(국사과)/영어/수학 해설 파이프라인 - 엔드투엔드 오케스트레이션. v2.
 
   1) 이미지를 장축 1960px로 리사이즈 (Clova 권장 해상도, 이후 모든 좌표의 공통 기준)
   2) 리사이즈된 이미지에서 손끝을 다시 검출 (find_finger_tip) - main.py가 넘겨준 x,y는
@@ -9,8 +9,8 @@
   4) question_locator로 손끝이 가리키는 문항 특정 (번호 앵커 + 밴드, 자르지 않고 표시만)
   5) Pinecone 무필터 검색 1회 (top_k=10) -> 같은 결과를 과목 판정과 유사문제 선별에 나눠 씀
   6) subject_router로 과목(영어/수학/국사과) 판정
-  7) 국어/사회/과학이면 explain_guksagwa로, 영어면 explain_english로 Gemini 2차 호출
-     (v2의 유일한 LLM 호출). 수학은 아직 미지원.
+  7) 국어/사회/과학이면 explain_guksagwa로, 영어면 explain_english로, 수학이면 explain_math로 Gemini 2차 호출
+     (v2의 유일한 LLM 호출)
   8) 과목 자가검증(subject_mismatch) 처리 + 문항번호 자가검증 로그
   9) 최종 JSON 조립
 
@@ -34,6 +34,7 @@ from app.question_locator import locate_question, LocateError
 from app.subject_router import decide_branch, select_similar, BRANCH_OF
 from guksagwa_explainer import explain_guksagwa
 from english_explainer import explain_english
+from math_explainer import explain_math
 from answer_utils import normalize_answer
 
 load_dotenv()
@@ -41,14 +42,19 @@ load_dotenv()
 _PINECONE_INDEX_NAME = "geondi-questions"
 _PINECONE_NAMESPACE = "questions"
 _PINECONE_TOP_K = 10
+_BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
-_OPTION_MARKERS = "①②③④⑤"
+_OPTION_MARKERS = "①②③④"
 
 
 def _marker_pattern(n: int):
-    """n번 보기 마커 패턴 - 원문자(①~⑤) 또는, Clova가 원문자를 못 읽고 맨 숫자로
+    """n번 보기 마커 패턴 - 원문자(①~④) 또는, Clova가 원문자를 못 읽고 맨 숫자로
     반환한 경우를 대비해 공백으로 둘러싸인 숫자 n도 같이 허용한다 (실제로 ④가
-    "4"로 인식돼 보기 3번 텍스트 뒤에 붙어버리는 사례가 있었음)."""
+    "4"로 인식돼 보기 3번 텍스트 뒤에 붙어버리는 사례가 있었음).
+    n이 지원 범위(1~4번, _OPTION_MARKERS 길이)를 벗어나면 None을 반환한다 -
+    호출부가 이를 "더 이상 다음 마커 없음"으로 보고 루프를 멈춰야 한다."""
+    if n < 1 or n > len(_OPTION_MARKERS):
+        return None
     circled = _OPTION_MARKERS[n - 1]
     return re.compile(rf"{re.escape(circled)}|(?<=\s){n}(?!\d)(?=\s)")
 
@@ -92,8 +98,8 @@ def _split_passage_and_options(text):
     """
     question_locator가 만든 query_text(범위 지시문 + 지문/발문 + 보기가 한 문자열로 합쳐진 것)를
     영어 분기 explainer가 요구하는 passage_text/options 형태로 다시 나눈다. ①이 처음 나오는
-    지점을 기준으로 그 앞을 지문, 그 뒤를 보기로 본다. 국사과 분기는 이 분리가 필요 없어
-    ocr_text(=query_text 그대로)만 쓴다.
+    지점을 기준으로 그 앞을 지문, 그 뒤를 보기로 본다. 국사과/수학 분기는 이 분리가 필요 없어
+    ocr_text(=query_text 그대로)만 쓴다 (branch == "영어"일 때만 호출됨).
     """
     first_marker_idx = min(
         (text.index(m) for m in _OPTION_MARKERS if m in text), default=-1
@@ -109,7 +115,10 @@ def _split_passage_and_options(text):
     # 본문에 우연히 등장하는 숫자와 혼동할 위험이 원문자/맨숫자 구분 없는 방식보다 낮다.
     positions = [0]
     for n in range(2, 6):
-        m = _marker_pattern(n).search(remainder, positions[-1] + 1)
+        pattern = _marker_pattern(n)
+        if pattern is None:
+            break
+        m = pattern.search(remainder, positions[-1] + 1)
         if m is None:
             break
         positions.append(m.start())
@@ -249,7 +258,11 @@ def _retake_response(reason, blur_score=None, brightness=None):
 
 
 def _explainer_for(branch):
-    return explain_english if branch == "영어" else explain_guksagwa
+    if branch == "영어":
+        return explain_english
+    if branch == "수학":
+        return explain_math
+    return explain_guksagwa
 
 
 def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 알려줘",
@@ -266,7 +279,7 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
       해당 과목의 브랜치로 강제 진행한다 (하위 호환용 테스트 편의 기능, test_pipeline.py 참고).
     save_path: 지정하면 최종 결과를 JSON 파일로도 저장한다.
 
-    반환 (해설 응답 명세서 - 국사과/영어 분기 참고):
+    반환 (해설 응답 명세서 - 국사과/영어/수학 분기 참고):
       국사과 성공 시 {"status": "success", "type": "guksagwa", "subject": str,
                     "problem_type": str, "problem_text": str, "explanation": str,
                     "answer": {"number": int|None, "text": str}, ...}
@@ -274,6 +287,10 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
                     "problem_type": str, "passage": {...}, "options": [...],
                     "translation": {...}, "explanation": str,
                     "answer": {"number": int|None, "text": str}, ...}
+      수학 성공 시   {"status": "success", "type": "math", "subject": str,
+                    "problem_type": str, "steps": [{"step_number": int, "text": str}, ...],
+                    "explanation": str, "answer": {"number": int|None, "text": str},
+                    "diagram_path": str|None, ...}
       미지원 과목    {"status": "unsupported_subject", "subject": str, "message": str}
       재촬영 요청    {"status": "retake", "reason": str, "message": str, "blur_score",
                     "brightness", "skew_deg", "text_object_count"} (해당 없는 값은 null)
@@ -291,6 +308,8 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
         result = _run_pipeline_inner(image_path, x, y, stt_text, user_question,
                                       classification_override)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"오류: 파이프라인 처리 중 예외 발생: {e!r}")
         result = {"status": "error", "message": str(e)}
 
@@ -425,13 +444,19 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
 
     low_conf_lines = _low_conf_texts_in_box(ocr_data["lines"], ocr_data["low_conf_lines"], box)
 
-    passage, options_v2 = _split_passage_and_options(locate_result.query_text)
+    # _split_passage_and_options는 영어 분기 전용 파싱이라 branch가 "영어"일 때만 돌린다
+    # (수학/국사과 분기가 이 결과를 쓰지 않는데도 항상 호출되고 있었던 게, 보기 개수/형식이
+    # 특이한 수학 문제에서 IndexError를 내는 원인이었다 - 2026-09-26 발견).
     ocr_result_guksagwa = {"ocr_text": locate_result.query_text, "keywords": []}
-    ocr_result_english = {
-        "ocr_text": locate_result.query_text,
-        "passage_text": passage,
-        "options": options_v2,
-    }
+    if branch == "영어":
+        passage, options_v2 = _split_passage_and_options(locate_result.query_text)
+        ocr_result_english = {
+            "ocr_text": locate_result.query_text,
+            "passage_text": passage,
+            "options": options_v2,
+        }
+    else:
+        ocr_result_english = None
 
     reference = None
     if similar_questions:
@@ -445,22 +470,14 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
         low_conf_lines=low_conf_lines or None,
         subject_hint=subject_hint,
         category=category,
-        transcript=stt_text,
+        transcript=stt_text or user_question,  # <-- stt_text가 비어있으면 user_question을 그대로 전달!
         reference=reference,
     )
 
-    if branch == "수학":
-        # 수학 해설기는 아직 구현되지 않음 (v1과 동일하게 미지원으로 응답)
-        result = {
-            "status": "unsupported_subject",
-            "subject": subject_hint or branch,
-            "message": "수학 분기는 아직 구현되지 않았습니다 (국어/사회/과학/영어만 지원)",
-        }
-        result["finger_detected"] = finger_detected
-        return result
-
     def ocr_result_for(b):
-        return ocr_result_english if b == "영어" else ocr_result_guksagwa
+        if b == "영어":
+            return ocr_result_english
+        return ocr_result_guksagwa
 
     print(f"4. Gemini 2차 호출 ({branch})...")
     t_explain = time.perf_counter()
@@ -475,6 +492,15 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
         print(f"경고: subject_mismatch 반환됨 (지정={branch}, 제안={mismatch}) "
               f"-> {suggested_branch}로 1회 재호출")
         branch = suggested_branch
+        # 재호출 브랜치가 "영어"로 바뀌는 경우를 대비해, 아직 안 만들어둔 ocr_result_english를
+        # 이 시점에 만든다 (처음부터 branch == "영어"였으면 위에서 이미 만들어져 있음).
+        if branch == "영어" and ocr_result_english is None:
+            passage, options_v2 = _split_passage_and_options(locate_result.query_text)
+            ocr_result_english = {
+                "ocr_text": locate_result.query_text,
+                "passage_text": passage,
+                "options": options_v2,
+            }
         explanation = _explainer_for(branch)(ocr_result_for(branch), {"과목": subject_hint},
                                               **common_kwargs)
         mismatch2 = explanation.get("subject_mismatch")
@@ -508,6 +534,20 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
             # 내부 explanation_text -> 외부 API 계약 필드 explanation으로 매핑 (국사과 분기와 동일한 이유)
             "explanation": explanation.get("explanation_text", ""),
             "answer": normalize_answer(explanation.get("answer"), options_out),
+        }
+    elif branch == "수학":
+        _diagram_path = explanation.get("diagram_path")
+        result = {
+            "status": "success",
+            "type": "math",
+            "subject": subject_hint or branch,
+            "problem_type": problem_type,
+            "problem_text": explanation.get("problem_text") or locate_result.query_text,
+            "steps": explanation.get("steps", []),
+            "explanation": explanation.get("explanation_text", ""),
+            "answer": normalize_answer(explanation.get("answer")),
+            "diagram_path": _diagram_path,
+            "explanationImage": f"{_BASE_URL}{_diagram_path}" if _diagram_path else None,
         }
     else:
         result = {

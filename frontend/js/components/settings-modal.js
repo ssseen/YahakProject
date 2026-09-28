@@ -67,8 +67,14 @@ export function openSettingsModal() {
   });
 
   root.querySelector('#test-speed-btn').addEventListener('click', () => {
-    // TODO: 실제 TTS 미리듣기 연동
-    console.log('TTS 미리듣기:', getState().settings.speechRate);
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const rateKey = getState().settings.speechRate;
+    const rateVal = rateKey === 'slow' ? 0.75 : rateKey === 'fast' ? 1.2 : 0.95;
+    const utter = new SpeechSynthesisUtterance('안녕하세요, 선택하신 속도로 문제 해설을 읽어드립니다.');
+    utter.lang = 'ko-KR';
+    utter.rate = rateVal;
+    window.speechSynthesis.speak(utter);
   });
 
   const close = () => {
