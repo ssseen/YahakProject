@@ -373,14 +373,44 @@ v1(예전)은 Gemini를 두 번(OCR용 1차 + 해설용 2차) 불렀는데, v2�
   손톱 위 한 점일 뿐이라 픽셀 단위로 정확히 일치할 필요는 없다는 사용자 판단으로
   도입. 실제 사진에 100px 원을 그려서 눈으로 확인한 값(손톱 하나보다 살짝 넉넉한
   크기). `run_accuracy_eval.py`/`retest_p1_only.py`의 `P1_HIT_THRESHOLD_PX`.
-- **최신 정확도 (2026-09-09, 5번 섹션 4항 수정 반영 후)**: P1 100px 이내 93%,
-  P3(predicted 손끝, 실제 프로덕션과 동일) 87%, P3(GT 손끝, question_locator 자체
-  성능) 94%. 결과 파일은 `results/accuracy_metrics.txt`(요약)와
-  `results/accuracy_raw_results.json`(100장 개별 결과, 재분석용)에 있음.
-- **아직 없는 것**: `question_locator`가 그리는 빨간 박스 자체가 GT 바운딩박스와
-  얼마나 겹치는지(IoU) 재는 지표는 아직 없음 - 지금은 "문항 번호가 맞았는지"만
-  본다. 필요해지면 `locate_result.box`(현재 저장 안 함, `evaluate_one`에서 계산은
-  됨)와 `gt_box_pipeline_space`(이미 저장됨)로 추가 가능.
+- **최신 정확도 (2026-09-23, `question_locator.py` 앵커 오인식 수정 반영 후)**:
+  P1 100px 이내 90%, P3(predicted 손끝, 실제 프로덕션과 동일) 88%, P3(GT 손끝,
+  question_locator 자체 성능) 95%. 결과 파일은 `results/accuracy_metrics.txt`
+  (요약)와 `results/accuracy_raw_results.json`(100장 개별 결과, 재분석용)에 있음.
+  `run_accuracy_eval.py --cache-only`로 Clova 재호출 없이 재현 가능.
+  - **P1이 93%→90%로 내려간 건 이 세션에서 원인 조사 안 함** — `vision_processor.py`는
+    이번에 안 건드렸는데도 2026-09-09 스냅샷과 다르게 나왔다. 그 사이 세션들에서
+    손끝 검출 쪽에 뭔가 바뀐 게 있는지, 아니면 라이브러리 버전 차이(예:
+    mediapipe) 때문인지 확인 안 됨 - 다음에 P1 건드릴 일 있으면 먼저 원인부터
+    볼 것 (테스트 아티팩트로 넘기지 말 것, 관련: 메모리 `feedback_dont_dismiss_anomalies`).
+  - **오늘 고친 것 (P3 GT-based 94%→95%, 회귀 없음, 100장 전수 재검증 완료)**:
+    `question_locator.py`의 `ANCHOR` 정규식이 문맥을 전혀 모른 채 "숫자+`.`/`)`로
+    시작하는 줄"이면 다 문항 번호 후보로 잡던 문제를 좁혔다.
+    1) 소수(`0.1` 등)는 `.` 뒤에 숫자가 오면 애초에 앵커 후보에서 제외
+       (`ANCHOR`에 `(?!\d)` 추가).
+    2) 각주/용어 풀이("1) 슬쿼지: 실컷, 마음껏.")는 콜론 앞이 한글/한자 용어뿐일
+       때만(숫자·로마자 섞이면 "7 : 10"(비율)/"f:X→Y"(함수 표기) 같은 진짜 문항
+       본문일 수 있어서 제외) 앵커 후보에서 뺀다(`_is_likely_footnote`). 처음엔
+       콜론만 보고 걸렀다가 16.jpg 20번("비 7:10"), 30.jpg 17번("f:X→Y") 같은
+       진짜 앵커까지 지워서 회귀가 났었음 - 반드시 한글/한자 제한 버전으로 쓸 것.
+    3) 이 두 필터로도 못 거르는 경우(각주가 우연히 실제 문항 사이에서 더 긴
+       증가수열을 만들어 LIS가 진짜 앵커를 통째로 버리는 경우 등) 대비, "이
+       컬럼 첫 앵커보다 손끝이 `median_h*5` 넘게 위" 또는 "이 컬럼에 검출된
+       앵커가 1개뿐인데 그 앵커부터 손끝까지 `median_h*15` 넘게 떨어짐"이면
+       조용히 틀린 번호를 내는 대신 `LocateError`로 포기(`_FALLBACK_GAP_MULT`,
+       `_SINGLE_ANCHOR_SPAN_MULT`) - `pipeline.py`가 이미 `location_failed`
+       재촬영 안내로 받아서 처리하므로 UX상 안전함.
+  - **아직 안 고친 것 (경계 클릭형, 27.jpg/54.jpg 등)**: 손끝이 문항 경계에 거의
+    걸쳐 있을 때 `locate_question:258`의 "손끝→가장 가까운 줄" 탐색이 컬럼 구분도
+    하기 전에 페이지 전체를 거리로만 훑어서, 그림/빈 여백 위를 짚으면 엉뚱한 줄이
+    최근접으로 잡히는 문제. 다음에 손댈 것.
+- `results/p3_gt_failures.png` — P3(GT 손끝 기준) 실패 사례를 GT(초록)/predicted
+  박스(빨강)로 같이 그린 시각화. `visualize_p3_gt_failures.py`로 재생성 가능
+  (Clova 캐시만 쓰고 API 호출 없음).
+- **박스 정확도(IoU)**: `question_locator`가 그리는 빨간 박스와 GT 바운딩박스가
+  얼마나 겹치는지는 `run_accuracy_eval.py`가 이미 잰다 (`accuracy_metrics.txt`의
+  "[박스 정확도]" 섹션 참고, 평균 IoU 약 55~56%) - 위에 "아직 없는 것"이라고
+  적혀 있던 건 이 문서가 안 따라와서 생긴 오기였음, 2026-09-23에 바로잡음.
 
 ---
 

@@ -12,8 +12,25 @@ from dataclasses import dataclass, field
 from statistics import median
 
 
-ANCHOR = re.compile(r'^\s*(\d{1,2})\s*[.)]')
+ANCHOR = re.compile(r'^\s*(\d{1,2})\s*[.)](?!\d)')
 RANGE_HEADER = re.compile(r'^\[(\d+)\s*[~～\-]\s*(\d+)\]\s*(.+)')
+
+# 문항 번호가 아니라 각주/용어 풀이("1) 슬쿼지: 실컷, 마음껏.")를 앵커로 오인하지
+# 않기 위한 필터. 콜론 앞이 한글/한자 용어(공백·괄호 포함)뿐일 때만 각주로 본다 -
+# 숫자나 로마자가 섞여 있으면 "7 : 10"(비율) "f:X→Y"(함수 표기) 같은 실제 문항
+# 본문일 가능성이 높아서(실측 사례: 16.jpg 20번, 30.jpg 17번이 이렇게 걸러졌었음)
+# 각주로 치지 않는다.
+_FOOTNOTE_COLON = re.compile(r'^[가-힣一-龥()（）\s,.]{1,20}[:：]')
+
+
+def _is_likely_footnote(text: str) -> bool:
+    return bool(_FOOTNOTE_COLON.match(_strip_anchor(text)))
+
+# "이 컬럼에서 확실한 앵커를 못 찾았는데 손끝은 첫 앵커보다도 훨씬 위에 있다"거나
+# "단 하나뿐인 앵커가 감당하기엔 밴드가 비정상적으로 넓다" 같은, 근거가 지나치게
+# 빈약한 상황에서 LocateError로 포기시키는 기준 (median_h의 배수).
+_FALLBACK_GAP_MULT = 5
+_SINGLE_ANCHOR_SPAN_MULT = 15
 
 
 class LocateError(Exception):
@@ -152,7 +169,7 @@ def _build_anchors_for_column(col_indices: list[int], lines: list[Line], headers
     for i in sorted_idx:
         l = lines[i]
         m = ANCHOR.match(l.text)
-        if m:
+        if m and not _is_likely_footnote(l.text):
             candidates.append((int(m.group(1)), l.bbox[1], l.bbox[3]))
 
     # LIS: num 기준 최장 증가 부분수열 (읽는 순서 = y 오름차순 유지)
@@ -260,6 +277,10 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
     if not anchors:
         raise LocateError("이 컬럼에서 번호 앵커를 하나도 찾지 못함 (폴백 사다리 미구현 구간)")
 
+    # LIS 통과 후 이 컬럼에 남은(복구분 제외) 실제 검출 앵커 수. 아래 두 폴백 분기의
+    # 신뢰도 판단과 fallback_level 계산에 공통으로 쓴다.
+    detected_count = sum(1 for a in anchors if not a.recovered)
+
     # target보다 위(또는 같은 y)에 있는 마지막 앵커 = target이 속한 밴드의 시작 앵커
     anchors_sorted = sorted(anchors, key=lambda a: a.top)
     band_anchor = None
@@ -272,8 +293,18 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
             break
 
     if band_anchor is None:
-        # 손끝이 첫 앵커보다도 위에 있는 경우: 첫 앵커로 폴백
-        band_anchor = anchors_sorted[0]
+        # 손끝이 첫 앵커보다도 위에 있는 경우: 보통은 진짜로 1번 문항 번호 바로
+        # 위를 짚은 정상적인 상황이라 첫 앵커로 폴백하지만, 그 앵커가 손끝에서
+        # 비정상적으로 멀면(예: 진짜 앵커가 LIS에서 잘못 걸러져 컬럼에 남은 게
+        # 각주/오인식 번호뿐인 경우) 그 값은 신뢰할 근거가 없으므로 포기한다.
+        first_anchor = anchors_sorted[0]
+        gap = first_anchor.top - target.bbox[1]
+        if gap > median_h * _FALLBACK_GAP_MULT:
+            raise LocateError(
+                f"손끝이 이 컬럼의 첫 앵커({first_anchor.num}번, top={first_anchor.top})보다 "
+                f"{gap:.0f}px 위에 있음(median_h={median_h:.0f}px) - 신뢰할 수 없어 포기"
+            )
+        band_anchor = first_anchor
         next_top = anchors_sorted[1].top if len(anchors_sorted) > 1 else None
 
     band_top = band_anchor.top
@@ -296,6 +327,19 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
             if cur_l.bbox[1] - prev_l.bbox[3] > gap_threshold:
                 band_bottom = prev_l.bbox[3]
                 break
+
+        # 이 컬럼에 검출된 앵커가 단 1개뿐이면(뒤를 받쳐줄 다음 앵커가 없어 위
+        # 간격 휴리스틱에만 의존) 그 앵커 자체가 오인식일 위험이 있다. 손끝이
+        # 그 앵커에서 비정상적으로 멀리 떨어진 곳까지 밴드로 묶였다면(실측 사례:
+        # 표 안의 소수 "0.1"이 앵커로 오인식되어 한참 아래 진짜 문항까지 삼킴)
+        # 포기한다.
+        if detected_count == 1:
+            span = fy - band_top
+            if span > median_h * _SINGLE_ANCHOR_SPAN_MULT:
+                raise LocateError(
+                    f"이 컬럼의 유일한 앵커({band_anchor.num}번, top={band_top})에서 손끝까지 "
+                    f"{span:.0f}px 떨어짐(median_h={median_h:.0f}px) - 근거가 앵커 하나뿐이라 포기"
+                )
 
     band_lines = [l for i, l in enumerate(body_lines) if i in col and band_top <= l.bbox[1] < band_bottom]
 
@@ -324,8 +368,7 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
     x2 = max(b[2] for b in box_sources)
     y2 = max(b[3] for b in box_sources)
 
-    # LIS 통과 후 이 컬럼에 남은(복구분 제외) 실제 검출 앵커 수로 fallback_level 판단
-    detected_count = sum(1 for a in anchors if not a.recovered)
+    # fallback_level 판단 (detected_count는 위에서 이미 계산됨)
     if detected_count >= 2:
         fallback_level = 1
     elif detected_count == 1:
