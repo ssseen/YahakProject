@@ -362,7 +362,11 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
     query_parts = ([range_header_text] if range_header_text else []) + stripped_bodies
     query_text = " ".join(p for p in query_parts if p)
 
-    box_sources = ([header_line.bbox] if header_line else []) + [l.bbox for l in band_lines]
+    # 범위 지시문("[11~13] 다음 글을 읽고...")은 query_text에만 넣고 박스에는 넣지 않는다.
+    # 넣으면 13번을 짚어도 박스가 지시문까지 늘어나 공유 지문 전체를 덮고, 지시문이 옆
+    # 컬럼에 있으면 두 컬럼에 걸친 박스가 된다 (100장 실측: 박스 IoU 53.7%→59.6%).
+    # 밴드에 줄이 하나도 없는 예외 상황에서만 지시문 줄로 폴백한다.
+    box_sources = [l.bbox for l in band_lines] or ([header_line.bbox] if header_line else [])
     x1 = min(b[0] for b in box_sources)
     y1 = min(b[1] for b in box_sources)
     x2 = max(b[2] for b in box_sources)

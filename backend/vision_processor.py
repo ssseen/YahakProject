@@ -148,8 +148,9 @@ def find_finger_tip(img):
       2) 살색이면서 종이 영역(약간 확장)에 들어온 부분만 = 손가락 (책상 제외).
       3) 여러 덩어리가 후보로 잡히면 비정상적으로 가늘고 긴 것(노이즈)은 제외하고,
          남은 것 중 면적이 가장 큰 것을 손가락으로 고른다 (_select_finger_blob 참고).
-      4) 손가락 덩어리의 '무게중심에서 가장 멀리 뾰족하게 튀어나온 끝점' = 손끝.
-         (손가락 사이 골/옆선이 아니라 실제 손톱 끝을 잡기 위함)
+      4) 반지로 끊긴 손가락 조각이 있으면 다시 합친다 (_merge_ring_split 참고).
+      5) 손가락 덩어리를 볼록껍질로 채워 가장 뾰족하게 뻗은 끝점 = 손끝
+         (_find_pointed_tip 참고).
 
     손가락이 없으면 (None, "손가락 없음") 반환 (에러 아님).
     """
@@ -182,6 +183,7 @@ def find_finger_tip(img):
         return None, "손가락 없음"
 
     finger_blob = _select_finger_blob(cnts, h)
+    finger_blob = _merge_ring_split(finger_blob, cnts, (h, w))
 
     tip_x, tip_y = _find_pointed_tip(finger_blob, paper)
     if tip_x is None:
@@ -195,42 +197,135 @@ def find_finger_tip(img):
     return {"x": int(tip_x), "y": int(tip_y), "corner": corner}, "OK"
 
 
+# 반지로 끊긴 손가락 조각을 다시 합치는 최대 간격(px, 1960px 기준). 415장 실측:
+# 40px은 반지 7장 중 2장만 복구, 60~80px은 7장 전부 복구 + 회귀 0, 120px부터 회귀 시작
+# -> 그 가운데인 80px.
+_RING_GAP_PX = 80
+
+
+def _touches_border(contour, shape, e=4):
+    h, w = shape
+    p = contour.reshape(-1, 2)
+    return bool(((p[:, 0] <= e) | (p[:, 1] <= e) | (p[:, 0] >= w - 1 - e) | (p[:, 1] >= h - 1 - e)).any())
+
+
+def _contour_gap(a, b):
+    """두 외곽선 사이 최소 거리. 꼭짓점끼리가 아니라 꼭짓점↔상대 외곽선(변 포함) 거리를
+    양방향으로 잰다 - findContours(CHAIN_APPROX_SIMPLE)는 직선 구간을 양 끝 꼭짓점만 남기고
+    압축하므로, 꼭짓점끼리만 재면 실제로는 붙어 있는 덩어리도 멀게 나온다."""
+    def one_way(src, dst):
+        return min(abs(cv2.pointPolygonTest(dst, (float(x), float(y)), True))
+                   for x, y in src.reshape(-1, 2))
+    return min(one_way(a, b), one_way(b, a))
+
+
+def _merge_ring_split(chosen, cnts, shape):
+    """
+    반지 때문에 둘로 끊긴 손가락을 다시 합친다 (2026-10-01).
+
+    반지는 살색이 아니라서 손이 "반지 앞 손가락 끝 조각"과 "반지 뒤 손 조각"으로 끊긴다.
+    415장 중 손끝이 빗나간 7장이 전부 이 경우였다(73, 173, 174, 202, 349, 385, 396). 큰 손
+    조각이 선택되면 손끝이 반지 근처에 찍히고, 손가락 끝 조각이 선택되면 사진 가장자리에
+    안 닿아 손이 들어온 방향을 몰라 반지 쪽 끝을 손끝으로 골랐다.
+
+    선택된 덩어리와 _RING_GAP_PX 안에 있는 후보를 합치되, **둘 중 정확히 하나만 사진
+    가장자리에 닿을 때만** 합친다. 반지로 끊긴 손가락 끝 조각은 사진 가장자리에 안 닿고
+    떠 있는 반면, 다른 손가락이나 종이 가장자리를 따라 생긴 띠는 둘 다 가장자리에서
+    들어오기 때문(이 조건 없이 합치면 299.jpg는 옆 손가락, 308.jpg는 종이 가장자리 띠와
+    합쳐져 깨졌음). 반환값은 합친 외곽선 점 묶음(_find_pointed_tip은 볼록껍질과 외곽선
+    점만 쓰므로 하나의 닫힌 외곽선일 필요가 없다).
+    """
+    chosen_touches = _touches_border(chosen, shape)
+    merged = [chosen]
+    for c in cnts:
+        if c is chosen or _elongation(c) > _MAX_PLAUSIBLE_FINGER_ELONGATION:
+            continue
+        if _touches_border(c, shape) == chosen_touches:
+            continue
+        if _contour_gap(chosen, c) <= _RING_GAP_PX:
+            merged.append(c)
+    return np.vstack(merged) if len(merged) > 1 else chosen
+
+
+# 손끝 후보 두 개가 이 거리(px) 안이면 같은 점으로 보고 긴 축 후보를 그대로 쓴다.
+_TIP_AGREE_PX = 60
+
+
+def _paper_center(paper):
+    Mp = cv2.moments(paper)
+    if Mp["m00"] == 0:
+        return paper.shape[1] / 2, paper.shape[0] / 2
+    return Mp["m10"] / Mp["m00"], Mp["m01"] / Mp["m00"]
+
+
+def _tip_by_hull_axis(hull_pts, hull_mask, paper):
+    """후보 1: 볼록껍질을 채운 영역의 긴 축(주성분) = 손가락 방향. 그 방향으로 가장 멀리
+    뻗은 껍질 점. 축의 앞/뒤(부호)만 종이 중심 쪽으로 정한다."""
+    ys, xs = np.nonzero(hull_mask)
+    P = np.stack([xs, ys], 1).astype(np.float64)
+    c = P.mean(0)
+    _, _, vt = np.linalg.svd(P[::7] - c, full_matrices=False)
+    d = vt[0]
+    px, py = _paper_center(paper)
+    if d[0] * (px - c[0]) + d[1] * (py - c[1]) < 0:
+        d = -d
+    return hull_pts[int(((hull_pts - c) @ d).argmax())]
+
+
+def _tip_by_root(contour_pts, hull_pts, shape):
+    """후보 2: 손이 사진 가장자리로 들어오는 지점(뿌리)에서 가장 먼 껍질 점.
+    덩어리가 사진 가장자리에 안 닿으면 None."""
+    h, w = shape
+    e = 4
+    x, y = contour_pts[:, 0], contour_pts[:, 1]
+    edge = contour_pts[(x <= e) | (y <= e) | (x >= w - 1 - e) | (y >= h - 1 - e)]
+    if len(edge) == 0:
+        return None
+    root = edge.mean(0)
+    return hull_pts[int(((hull_pts - root) ** 2).sum(1).argmax())]
+
+
 def _find_pointed_tip(contour, paper):
     """
-    손가락 덩어리에서 '실제 손끝'을 찾는다.
-      - 손이 종이로 들어오는 '뿌리(손목 쪽)' 의 반대편,
-        즉 종이 안쪽으로 가장 뾰족하게 뻗은 점을 끝으로 본다.
-      - 손가락 사이 골짜기(오목한 부분)는 무게중심 기준 '먼 볼록점'이 아니므로 걸러진다.
+    손가락 덩어리에서 '실제 손끝'(가장 뾰족한 끝)을 찾는다.
+
+    2026-10-01 재설계 (415장 실측: 100px 이내 371→396장, 오차 중앙값 31.5→12px대).
+    이전 방식("손 무게중심 → 종이 중심" 방향으로 가장 멀리 뻗은 외곽선 점)은 두 가지로
+    틀렸다:
+      1) 손톱·손가락 가운데는 밝고 채도가 낮아 종이로 판정되기 때문에, 손 덩어리가
+         손가락 전체가 아니라 U자 테두리로만 잡힌다. 외곽선 점을 그대로 쓰면 U자
+         꼭짓점(진짜 손끝)이 아니라 U자 안쪽 면이 찍혔다.
+      2) 종이 중심이 손보다 한참 아래에 있으면 방향이 아래로 기울어 손가락 아랫면이
+         찍혔다 (94.jpg: 158px 빗나감).
+    그래서 볼록껍질(cv2.convexHull)로 U자를 채워 손가락 모양을 복원한 뒤 두 후보를 만든다.
+      - 후보 1 (_tip_by_hull_axis): 채운 영역의 긴 축 방향 끝점
+      - 후보 2 (_tip_by_root): 손이 사진 가장자리로 들어오는 뿌리에서 가장 먼 점
+    둘은 서로 다른 사진에서 실패한다(후보 1은 손가락 끝만 짧게 잡혀 긴 축이 가로로
+    잡힐 때, 후보 2는 뿌리가 애매할 때). 두 점이 가까우면 후보 1, 어긋나면 사진
+    가장자리에서 더 먼(종이 안쪽으로 더 깊이 들어간) 쪽을 고른다 - 손은 사진
+    가장자리에서 들어오므로 손끝은 그 반대쪽 끝이라는 원리. "더 위쪽 점"을 고르는
+    규칙도 같은 성능이었지만 손가락이 위를 가리킨다는 가정이 필요해서 쓰지 않음.
     """
     pts = contour.reshape(-1, 2)
     if len(pts) < 3:
         return None, None
 
-    # 손 덩어리 무게중심
-    M = cv2.moments(contour)
-    if M["m00"] == 0:
+    hull_pts = cv2.convexHull(contour).reshape(-1, 2)
+    hull_mask = np.zeros(paper.shape, np.uint8)
+    cv2.drawContours(hull_mask, [hull_pts.reshape(-1, 1, 2)], -1, 255, -1)
+    if not hull_mask.any():
         return None, None
-    gx, gy = M["m10"] / M["m00"], M["m01"] / M["m00"]
 
-    # 종이 중심 (손끝은 종이 중심 쪽을 향한다)
-    Mp = cv2.moments(paper)
-    if Mp["m00"] == 0:
-        px, py = paper.shape[1] / 2, paper.shape[0] / 2
-    else:
-        px, py = Mp["m10"] / Mp["m00"], Mp["m01"] / Mp["m00"]
+    tip = _tip_by_hull_axis(hull_pts, hull_mask, paper)
+    root_tip = _tip_by_root(pts, hull_pts, paper.shape)
+    if root_tip is not None and np.hypot(*(tip - root_tip)) >= _TIP_AGREE_PX:
+        h, w = paper.shape
 
-    # 손 무게중심 -> 종이 중심 방향 벡터 (손가락이 가리키는 방향)
-    dx, dy = px - gx, py - gy
-    norm = (dx * dx + dy * dy) ** 0.5
-    if norm < 1e-6:
-        dx, dy = 0, -1
-    else:
-        dx, dy = dx / norm, dy / norm
+        def edge_dist(p):
+            return min(p[0], p[1], w - 1 - p[0], h - 1 - p[1])
 
-    # 외곽선 각 점을 '가리키는 방향'으로 투영 → 가장 멀리 뻗은 점 = 손끝
-    proj = (pts[:, 0] - gx) * dx + (pts[:, 1] - gy) * dy
-    idx = int(proj.argmax())
-    return int(pts[idx][0]), int(pts[idx][1])
+        tip = max((tip, root_tip), key=edge_dist)
+    return int(tip[0]), int(tip[1])
 
 
 # -------------------------------------------------------------
