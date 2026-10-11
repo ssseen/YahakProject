@@ -28,10 +28,13 @@ from dotenv import load_dotenv
 from pinecone import Pinecone
 import os
 
-from vision_processor import find_finger_tip
+from vision_processor import find_finger_tip, augment_box_with_ink
 from app.clova_client import resize_for_ocr, call_clova, to_lines, rotate_image_bytes, ClovaError
 from app.question_locator import locate_question, LocateError
-from app.orientation import detect_rotation, rotate_lines, rotate_point, rotate_image, upright_size
+from app.orientation import detect_rotation, rotate_response, rotate_point, rotate_image, upright_size
+from app.deskew import (
+    estimate_skew_ocr, deskew_matrix, warp_response, warp_point, warp_image, MIN_SKEW_DEG, MAX_SKEW_DEG,
+)
 from app.subject_router import decide_branch, select_similar, BRANCH_OF
 from guksagwa_explainer import explain_guksagwa
 from english_explainer import explain_english
@@ -377,10 +380,27 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
     angle, votes = detect_rotation(clova_response)
     if angle:
         print(f"   페이지가 {angle}도 누워 있음 (득표 {votes}) - 똑바로 세움")
-        ocr_data["lines"] = rotate_lines(ocr_data["lines"], angle, page_w, page_h)
+        clova_response = rotate_response(clova_response, angle, page_w, page_h)
         fx, fy = rotate_point(fx, fy, angle, page_w, page_h)
         resized_img = rotate_image(resized_img, angle)
         page_w, page_h = upright_size(angle, page_w, page_h)
+
+    # 살짝(1~20도) 기운 사진은 줄 박스가 위아래로 부풀어 옆 줄·옆 문항과 겹친다. OCR 단어
+    # 좌표로 줄 기울기를 재서 사진(cv2.warpAffine)과 단어 꼭짓점·손끝을 같은 행렬로 편 뒤
+    # 줄을 다시 묶는다 (Clova 재호출 없음, app/deskew.py 참고). 415장을 인위적으로 15도
+    # 기울인 실험에서 문항 특정 89.0% -> 96.8%.
+    skew = estimate_skew_ocr(clova_response)
+    if skew is not None and MIN_SKEW_DEG <= abs(skew) <= MAX_SKEW_DEG:
+        print(f"   페이지가 {skew:.1f}도 기울어 있음 - 수평으로 폄")
+        M, nw, nh = deskew_matrix(skew, page_w, page_h)
+        clova_response = warp_response(clova_response, M, nw, nh)
+        fx, fy = warp_point(fx, fy, M)
+        resized_img = warp_image(resized_img, M, nw, nh)
+        page_w, page_h = nw, nh
+
+    # 방향·기울기 보정이 적용됐을 수 있으므로 보정된 단어 좌표로 줄을 다시 묶는다
+    # (보정이 없었으면 처음과 같은 결과).
+    ocr_data = to_lines(clova_response)
 
     print("2. 문항 특정 (question_locator)...")
     t_locate = time.perf_counter()
@@ -426,8 +446,14 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
     category = _category_hint_for_branch(matches, branch)
 
     box = locate_result.box
+    # 화면에 그리는 박스만, 그림·표(글자 없는 영역)를 추가로 포함하도록 보강한다.
+    # query_text/low_conf_lines 등 텍스트 기반 판단에는 원래 박스(box)를 그대로 쓴다
+    # - 보강은 "눈으로 보기 좋게"가 목적이지 검색/판정용 텍스트 범위를 바꾸는 게 아니다.
+    marked_box = augment_box_with_ink(resized_img, box, locate_result.col_x_range,
+                                       locate_result.band_y_range)
     marked_img = resized_img.copy()
-    cv2.rectangle(marked_img, (box[0], box[1]), (box[2], box[3]), (0, 0, 255), 4)
+    cv2.rectangle(marked_img, (marked_box[0], marked_box[1]), (marked_box[2], marked_box[3]),
+                  (0, 0, 255), 4)
 
     low_conf_lines = _low_conf_texts_in_box(ocr_data["lines"], ocr_data["low_conf_lines"], box)
 
