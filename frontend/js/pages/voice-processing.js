@@ -204,7 +204,7 @@ export function renderVoiceProcessing(container) {
     showHeader();
     const barsHtml = Array.from({ length: 5 }).map(() => '<span class="wave-bar"></span>').join('');
     container.innerHTML = `
-      <section class="voice-screen">
+      <section class="voice-screen recording-screen">
         <p>말씀이 끝나시면<br />버튼을 눌러주세요</p>
         <div class="wave-bars" aria-hidden="true">
           ${barsHtml}
