@@ -15,6 +15,8 @@ Clova는 누운 글자를 문장 그대로 정확히 읽고, 좌표 축만 누�
 
 이 파일은 순수 좌표 산술이며(이미지 회전만 cv2.rotate 사용) 네트워크 호출이 없다.
 """
+import copy
+
 import cv2
 
 from app.question_locator import Line
@@ -90,6 +92,21 @@ def rotate_lines(lines: list[Line], angle: int, w: int, h: int) -> list[Line]:
     if angle == 0:
         return lines
     return [Line(l.text, rotate_bbox(l.bbox, angle, w, h)) for l in lines]
+
+
+def rotate_response(response: dict, angle: int, w: int, h: int) -> dict:
+    """Clova 응답의 모든 단어 꼭짓점을 똑바로 세운 좌표로 옮긴 복사본 (to_lines에 그대로 넣을 수 있음).
+    줄 박스가 아니라 단어 단위로 돌려야, 뒤이은 기울기 보정(app/deskew.py)도 단어 단위로 이어서 할 수 있다."""
+    if angle == 0:
+        return response
+    out = copy.deepcopy(response)
+    im = out["images"][0]
+    for f in im.get("fields") or []:
+        for v in f["boundingPoly"]["vertices"]:
+            v["x"], v["y"] = rotate_point(v["x"], v["y"], angle, w, h)
+    nw, nh = upright_size(angle, w, h)
+    im["convertedImageInfo"] = {**(im.get("convertedImageInfo") or {}), "width": nw, "height": nh}
+    return out
 
 
 def rotate_image(img, angle: int):

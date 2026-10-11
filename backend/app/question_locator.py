@@ -53,6 +53,13 @@ class LocateResult:
     anchor_recovered: bool
     locate_confidence: str  # "high" | "low"
     fallback_level: int
+    # 이 문항이 속한 컬럼의 좌우 범위와 밴드(이 문항~다음 문항)의 상하 범위. box는 이
+    # 범위 안의 텍스트 줄만으로 만든 타이트한 박스라 그림·표처럼 글자 없는 내용은 못
+    # 담는다 - 이 범위는 이미 번호 앵커 기준으로 검증된 신뢰 가능한 영역이므로, 그
+    # 안에서 글자 없는 잉크(그림·표)를 추가로 찾아 박스를 보강할 때 쓴다
+    # (정확도검증test/experiment_ink_augment.py 참고).
+    col_x_range: tuple[float, float]
+    band_y_range: tuple[float, float]
 
 
 @dataclass
@@ -140,8 +147,19 @@ def _build_columns(lines: list[Line], gap: float):
         # 이유로 잘못 배정됐다 - 컬럼은 "그 지점부터 다음 컬럼이 시작되기 전까지"의
         # 영역이지, 기준선과의 거리로 나뉘는 게 아니다.
         pos = bisect.bisect_right(col_lefts, x0) - 1
-        best = max(pos, 0)
-        col_indices[best].append(i)
+        if pos < 0:
+            # 등록된 컬럼 중 가장 왼쪽보다도 멀리 왼쪽에 있는 줄 - 그 왼쪽에 "번호
+            # 앵커가 전혀 안 잡힌" 또 다른 컬럼(고아 컬럼)이 있다는 뜻일 수 있다.
+            # 실측 사례(35.jpg): 사진 프레임 밖에 번호가 있어 왼쪽 컬럼에 앵커가
+            # 하나도 안 잡혔는데, 그 컬럼의 보기 텍스트("was beautiful.")가 유일하게
+            # 등록된 오른쪽 컬럼(13/14번)에 그대로 쓸려 들어가 보기 ④ 뒤에 엉뚱하게
+            # 이어붙었다. 컬럼 간격(gap) 넘게 떨어져 있으면 억지로 끼워넣지 않고
+            # 아예 제외한다 - 소속을 모르는 줄은 안 쓰는 게, 엉뚱한 문항에 잘못
+            # 붙이는 것보다 낫다.
+            if col_lefts[0] - x0 > gap:
+                continue
+            pos = 0
+        col_indices[pos].append(i)
 
     return list(zip(col_lefts, col_indices))
 
@@ -274,6 +292,11 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
 
     col, anchors, col_left = target_col
 
+    # 이 컬럼의 오른쪽 경계 = 다음 컬럼의 왼쪽 경계(없으면 페이지 끝)
+    col_lefts_sorted = sorted(c[2] for c in col_anchors)
+    later = [cl for cl in col_lefts_sorted if cl > col_left]
+    col_right = min(later) if later else page_w
+
     if not anchors:
         raise LocateError("이 컬럼에서 번호 앵커를 하나도 찾지 못함 (폴백 사다리 미구현 구간)")
 
@@ -389,4 +412,6 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
         anchor_recovered=anchor_recovered,
         locate_confidence=locate_confidence,
         fallback_level=fallback_level,
+        col_x_range=(col_left, col_right),
+        band_y_range=(band_top, band_bottom),
     )

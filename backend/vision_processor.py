@@ -329,6 +329,79 @@ def _find_pointed_tip(contour, paper):
 
 
 # -------------------------------------------------------------
+# 문항 박스 보강 - 그림·표(글자 없는 영역) 포함시키기
+# -------------------------------------------------------------
+
+_INK_MIN_BLOB_AREA = 60  # 이보다 작은 잉크 조각(먼지·스캔 잡티)은 무시
+_INK_MAX_GAP_FROM_TEXT_PX = 90  # 기존 텍스트 박스에서 이보다 멀리 떨어진 잉크는 안 붙임
+
+
+def _box_rect_gap(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    dx = max(ax1 - bx2, bx1 - ax2, 0)
+    dy = max(ay1 - by2, by1 - ay2, 0)
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def augment_box_with_ink(img, text_box, col_x_range, band_y_range):
+    """
+    question_locator가 OCR 텍스트 줄만으로 만든 박스(text_box)에, 같은 문항 영역
+    안에 있는 그림·표(글자가 없어서 OCR에 안 잡힌 내용)를 추가로 포함시킨다.
+
+    배경: question_locator의 박스는 텍스트 줄의 바운딩박스라서, 정답 영역을 완벽히
+    골라도 그림·표·여백은 애초에 못 담는다(실측: 텍스트만으로는 IoU 상한 74.7%).
+    DBSCAN/watershed/이진화+팽창으로 "경계를 처음부터 다시 찾는" 방식을 3가지
+    시도했으나 전부 기존보다 나빴다 - 문항 사이 빈 공간엔 경계 신호가 없어서 옆
+    문항까지 번지거나 뭉쳤기 때문이다(정확도검증test/experiment_watershed_box.py,
+    experiment_dilation_box.py 참고).
+
+    그래서 접근을 바꿨다: 경계를 새로 찾지 않고, 이미 번호 앵커 기준으로 검증된
+    범위(col_x_range=이 문항이 속한 컬럼의 좌우 범위, band_y_range=이 문항~다음
+    문항의 상하 범위, question_locator.LocateResult 참고)를 그대로 신뢰해서 그
+    범위 안으로만 탐색을 제한한다. 그 안에서도 text_box와 가까운
+    (_INK_MAX_GAP_FROM_TEXT_PX 이내) 잉크만 추가한다 - col_x_range가 가끔 옆
+    컬럼까지 넓게 잡히는 경우가 있어서(실측: 106.jpg, 두 번째 컬럼이 따로 안
+    잡혀서 범위가 페이지 끝까지 넓어짐), 범위 안이라고 무조건 다 붙이면 그 옆
+    컬럼 내용까지 섞여 들어갈 수 있기 때문이다.
+
+    실측(412장 중 비교 가능한 193장, 기울기 보정 없는 사진): 평균 IoU 70.0%→72.6%,
+    중앙값 71.6%→74.3%(텍스트만의 상한 74.7%에 근접). 악화 8건/개선 74건, 악화는
+    전부 경미함(2~13%p).
+    """
+    h, w = img.shape[:2]
+    x1 = max(0, int(col_x_range[0]))
+    x2 = min(w, int(col_x_range[1]))
+    y1 = max(0, int(band_y_range[0]))
+    y2 = min(h, int(band_y_range[1]))
+    if x2 <= x1 or y2 <= y1:
+        return text_box
+
+    region = img[y1:y2, x1:x2]
+    gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+    ink = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV, 31, 15)
+
+    # 손가락(피부색)은 '잉크'가 아니다 - 빼지 않으면 사진에 찍힌 손가락이 잉크로
+    # 잡혀서 박스가 손가락 쪽으로 번진다.
+    skin = _find_skin_mask(region, get_sat_min(region))
+    ink = cv2.bitwise_and(ink, cv2.bitwise_not(skin))
+
+    contours, _ = cv2.findContours(ink, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    bx1, by1, bx2, by2 = text_box
+    for c in contours:
+        if cv2.contourArea(c) < _INK_MIN_BLOB_AREA:
+            continue
+        cx, cy, cw, ch = cv2.boundingRect(c)
+        gx1, gy1, gx2, gy2 = cx + x1, cy + y1, cx + cw + x1, cy + ch + y1
+        if _box_rect_gap((gx1, gy1, gx2, gy2), text_box) > _INK_MAX_GAP_FROM_TEXT_PX:
+            continue
+        bx1, by1 = min(bx1, gx1), min(by1, gy1)
+        bx2, by2 = max(bx2, gx2), max(by2, gy2)
+
+    return (bx1, by1, bx2, by2)
+
+
+# -------------------------------------------------------------
 # 손끝 좌표 -> 문제 블록 crop
 # -------------------------------------------------------------
 def _row_projection_blocks(row_sum, y_top, y_bottom, ink_threshold=3, min_gap_px=15):
