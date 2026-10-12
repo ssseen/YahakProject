@@ -70,6 +70,34 @@ def _load():
         _processor, _model, _device = processor, model, device
 
 
+def preload() -> None:
+    """
+    서버 기동 시 백그라운드 스레드에서 호출 - 모델 로딩(CPU 기준 약 30초)을 첫
+    /transcribe 요청이 떠안지 않게 미리 끝내둔다. 1초짜리 무음으로 추론을 한 번 돌려
+    첫 추론만 느린 워밍업 비용(실측 +2초)도 같이 치른다. 로딩 중에 /transcribe가 들어오면
+    `_load()`의 lock에서 기다렸다가 이어서 처리된다.
+
+    torch/whisper 폴더가 없는 클라우드 배포 환경에서는 실패가 정상이므로 로그만 남긴다.
+    """
+    import time
+
+    t = time.perf_counter()
+    try:
+        import torch
+
+        _load()
+        silence = np.zeros(_SAMPLE_RATE, dtype=np.float32)
+        feats = _processor(
+            silence, sampling_rate=_SAMPLE_RATE, return_tensors="pt"
+        ).input_features.to(_device)
+        with torch.no_grad():
+            _model.generate(feats, language="ko", task="transcribe")
+    except Exception as e:  # noqa: BLE001 - 어떤 이유로든 실패해도 서버 기동엔 영향 없어야 함
+        print(f"[STT] 모델 미리 로딩 건너뜀: {e!r}")
+        return
+    print(f"[STT] 모델 미리 로딩 완료 ({time.perf_counter() - t:.1f}초, device={_device})")
+
+
 def _decode_audio(audio_bytes: bytes) -> np.ndarray:
     """
     브라우저 MediaRecorder가 보내는 webm/opus 등 컨테이너를 16kHz mono float32

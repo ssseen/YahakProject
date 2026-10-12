@@ -468,6 +468,15 @@ q_proj/v_proj)를 적용한 어댑터(`adapter_config.json`/`adapter_model.safet
   `TestClient`로 `/transcribe`에 흘려서 200 응답 + `{"text": ...}` 구조까지는
   확인함. 사인파라 내용 자체는 의미 없는 문자열이 나왔음(당연함) — **실제 음성
   정확도는 아직 검증 안 됨**, 다음에 실제 사투리 녹음으로 한 번 테스트해볼 것.
+- **(2026-10-12 변경) 지연 로딩 → 서버 기동 시 백그라운드 미리 로딩.** 실측(CPU)으로
+  첫 `/transcribe`가 모델 로딩 ~33초 + 추론 ~7초를 떠안고 있었음. `main.py`에
+  `lifespan`을 추가해 기동 시 `stt_client.preload()`를 데몬 스레드로 돌림(무음 1초로
+  워밍업 추론까지). 서버는 즉시 요청을 받고(`/api/analyze` 영향 없음), 로딩 중 들어온
+  `/transcribe`는 `_load()` lock에서 기다림. 결과: 첫 요청 ~40초 → 8초. torch/
+  `whisper/`가 없는 Cloud Run에서는 preload가 예외를 잡고 로그만 남김. 무거운 import는
+  여전히 `_load()`/`preload()` 안에만 있음.
+- 추론 시간(~7초)은 발화 길이와 거의 무관 — Whisper가 입력을 항상 30초로 패딩해서
+  encoder(~4초)가 고정비용. LoRA `merge_and_unload()`로 ~15% 더 줄일 수 있음(미적용).
 
 **환경 이슈(중요, 다음에 또 겪을 수 있음)**: 기존 `backend/venv`가 아나콘다
 (`C:\Users\<user>\anaconda3\python.exe`)를 베이스로 만들어져 있었는데, 아나콘다가

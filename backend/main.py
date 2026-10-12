@@ -1,6 +1,8 @@
 import base64
 import os
 import tempfile
+import threading
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,11 +13,21 @@ from dotenv import load_dotenv
 from vision_processor import analyze_image
 from pipeline import run_pipeline
 from app.stt_client import SttError
+from app.stt_client import preload as preload_stt
 from app.stt_client import transcribe as transcribe_audio
 
 load_dotenv()
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # STT 모델 로딩(CPU 약 30초)을 첫 /transcribe 요청 대신 서버 기동 시점에 백그라운드로
+    # 끝내둔다. 스레드라서 서버는 바로 요청을 받고, /api/analyze는 영향 없음.
+    threading.Thread(target=preload_stt, name="stt-preload", daemon=True).start()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(os.path.join(_STATIC_DIR, "diagrams"), exist_ok=True)
