@@ -3,7 +3,7 @@
 
 베이스 모델은 openai/whisper-small, `whisper/` 폴더(레포 루트, backend 밖)에는
 peft LoRA 어댑터(adapter_config.json/adapter_model.safetensors)만 있고 토크나이저
-파일은 없다 - LoRA가 q_proj/v_proj만 건드려 어휘는 그대로이므로 프로세서(피처
+파일은 없다 - LoRA는 어휘를 안 건드려서 어휘는 그대로이므로 프로세서(피처
 추출기+토크나이저)는 베이스 모델 것을 그대로 쓴다(whisper/preprocessor_config.json과
 설정이 동일함을 확인함).
 
@@ -19,6 +19,7 @@ torch/peft/transformers는 requirements-cloudrun.txt에 없다(용량 때문에 
 """
 import io
 import os
+import re
 import threading
 from typing import Any
 
@@ -29,6 +30,8 @@ _ADAPTER_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "whisper")
 )
 _SAMPLE_RATE = 16000
+# 학습 라벨에 섞여 있던 잡음 태그(FP/SN/SP/NO) - 출력에 나오면 제거
+_NOISE_TAG = re.compile(r"\b(?:FP|SN|SP|NO)\b/?")
 
 _lock = threading.Lock()
 _processor: Any = None
@@ -63,11 +66,41 @@ def _load():
         device = "cuda" if torch.cuda.is_available() else "cpu"
         processor = WhisperProcessor.from_pretrained(_BASE_MODEL)
         base_model = WhisperForConditionalGeneration.from_pretrained(_BASE_MODEL)
-        model = PeftModel.from_pretrained(base_model, _ADAPTER_DIR)
+        # LoRA를 베이스에 합쳐서 추론 ~15% 단축
+        model = PeftModel.from_pretrained(base_model, _ADAPTER_DIR).merge_and_unload()
+        model.generation_config.forced_decoder_ids = None
         model.to(device)
         model.eval()
 
         _processor, _model, _device = processor, model, device
+
+
+def preload() -> None:
+    """
+    서버 기동 시 백그라운드 스레드에서 호출 - 모델 로딩(CPU 기준 약 30초)을 첫
+    /transcribe 요청이 떠안지 않게 미리 끝내둔다. 1초짜리 무음으로 추론을 한 번 돌려
+    첫 추론만 느린 워밍업 비용(실측 +2초)도 같이 치른다. 로딩 중에 /transcribe가 들어오면
+    `_load()`의 lock에서 기다렸다가 이어서 처리된다.
+
+    torch/whisper 폴더가 없는 클라우드 배포 환경에서는 실패가 정상이므로 로그만 남긴다.
+    """
+    import time
+
+    t = time.perf_counter()
+    try:
+        import torch
+
+        _load()
+        silence = np.zeros(_SAMPLE_RATE, dtype=np.float32)
+        feats = _processor(
+            silence, sampling_rate=_SAMPLE_RATE, return_tensors="pt"
+        ).input_features.to(_device)
+        with torch.no_grad():
+            _model.generate(feats, language="ko", task="transcribe")
+    except Exception as e:  # noqa: BLE001 - 어떤 이유로든 실패해도 서버 기동엔 영향 없어야 함
+        print(f"[STT] 모델 미리 로딩 건너뜀: {e!r}")
+        return
+    print(f"[STT] 모델 미리 로딩 완료 ({time.perf_counter() - t:.1f}초, device={_device})")
 
 
 def _decode_audio(audio_bytes: bytes) -> np.ndarray:
@@ -101,7 +134,7 @@ def _decode_audio(audio_bytes: bytes) -> np.ndarray:
         raise SttError("오디오에서 소리를 추출하지 못했습니다.")
 
     pcm = np.concatenate(chunks, axis=1).flatten()
-    return pcm.astype(np.float32) / 32768.0
+    return pcm.astype(np.float32)[: _SAMPLE_RATE * 30] / 32768.0  # Whisper 입력 창 30초
 
 
 def transcribe(audio_bytes: bytes) -> str:
@@ -124,4 +157,5 @@ def transcribe(audio_bytes: bytes) -> str:
         )
 
     text = _processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
-    return text.strip()
+    text = _NOISE_TAG.sub(" ", text)
+    return re.sub(r"\s+", " ", text).strip()

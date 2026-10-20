@@ -1,25 +1,39 @@
-# Whisper 사투리 인식 개선 파인튜닝 모델
+# Whisper 노인 발화 STT (LoRA)
 
-## 1. 파인튜닝 목적
-* 본 모델은 어르신들의 특유의 억양과 사투리가 섞인 음성을 더욱 정확하게 텍스트로 변환하기 위해 파인튜닝 되었습니다.
-* 일상생활의 특별하지 않은 소소한 틈을 메워 서비스를 완전하게 만든다는 프로젝트의 따뜻한 목표를 달성하기 위한 핵심 AI 파이프라인입니다.
+## 모델
+- 베이스: `openai/whisper-small`
+- LoRA: r=32, alpha=64, dropout 0.05, 대상 q/k/v/out_proj, fc1, fc2 (학습 파라미터 5.09%)
+- 데이터: AI Hub 노인남여 자유대화 음성(음성수집도구) – train 99.4h / 179명, valid 4.0h / 5명
+- 학습: lr 2e-4, batch 16(8×2), fp16, 조기 종료 → step 4500 (valid loss 0.1711)
 
-## 2. 모델 및 데이터셋 규모
-* **Base Model**: `openai/whisper-small`[cite: 1]
-* **학습 기법**: `peft` 0.20.0 라이브러리를 활용한 LoRA (Low-Rank Adaptation) 기법 적용[cite: 1]
-* **데이터셋 규모**: [여기에 실제 데이터 개수 적기, 예: 충청도 사투리 데이터셋 약 5,000건]
+## 성능 (AI Hub 공식 Validation, 학습과 겹치지 않는 화자 18명 × 100발화)
+| | CER |
+|---|---|
+| whisper-small 원본 | 10.31% |
+| LoRA 파인튜닝 | **6.41%** (상대 37.8% 감소) |
 
-## 3. 주요 하이퍼파라미터 (Hyperparameters)
-* **Learning Rate**: [예: 1e-4]
-* **Batch Size**: [예: 16]
-* **Epochs**: [예: 5]
-* **Max Steps**: 200 (최종 `checkpoint-200` 사용)
+## 파일
+| 파일 | 설명 |
+|---|---|
+| `adapter_config.json`, `adapter_model.safetensors` | LoRA 어댑터 (Drive `whisper-lora-ko-lr2e4/adapter`) |
+| `whisper_backend.py` | STT 서버 (`POST /transcribe`, `GET /health`) |
+| `Dockerfile`, `requirements.txt` | Cloud Run 배포용 |
 
-## 4. 최종 성능 지표 (Metrics)
-* **최종 정확도 (Accuracy)**: 94.5% 달성
-* **최종 Loss / WER**: [학습 후 얻은 Loss 값이나 WER 값 적기]
-* **학습 전후 비교**: 파인튜닝 전 기본 모델 대비 사투리 인식률이 대폭 상승하여, 어르신들의 음성 명령을 훨씬 부드럽게 이해합니다.
+로컬 백엔드(`backend/app/stt_client.py`)도 이 폴더의 어댑터를 그대로 읽는다.
 
-## 5. 트러블슈팅 (Troubleshooting)
-* **문제 상황**: 초기 학습 세팅 시 Learning Rate가 너무 높게 설정되어 Loss 값이 안정적으로 떨어지지 않고 발산하는 현상을 겪었습니다.
-* **해결 방법**: Learning Rate를 낮추고 데이터 전처리(16kHz 리샘플링)를 더욱 엄격하게 통제하여, 최종적으로 발산 없이 안정적인 성능(94.5%)을 확보하는 데 성공했습니다.
+## Cloud Run 배포 (레포 루트에서)
+```bash
+gcloud run deploy yahak-stt \
+  --source whisper \
+  --region asia-northeast3 \
+  --memory 4Gi --cpu 4 \
+  --min-instances 1 --max-instances 2 \
+  --cpu-boost \
+  --allow-unauthenticated
+```
+- 배포 후 나온 URL을 `frontend/js/pages/voice-processing.js`의 `STT_BASE`에 넣기
+- `--min-instances 1`: 콜드 스타트(모델 로딩 ~30초) 방지. 시연 끝나면 `0`으로 내려 비용 절약
+  ```bash
+  gcloud run services update yahak-stt --region asia-northeast3 --min-instances 0
+  ```
+- 확인: `curl https://<URL>/health` → `{"ok": true, "device": "cpu"}`
