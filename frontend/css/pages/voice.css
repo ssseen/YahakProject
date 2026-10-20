@@ -10,6 +10,15 @@
   overflow-y: auto;
   text-align: center;
 }
+
+.recording-screen {
+  gap: 40px;              /* 100px → 32px. 취향대로 24~40 사이로 조절 */
+}
+
+.recording-screen .stop-btn {
+  margin-top: auto;       /* 간격을 줄여도 버튼은 맨 아래에 고정 */
+}
+
 /* 대기/녹음중 화면만 헤더가 뜨므로, 이 둘에만 고정 헤더만큼 상단 여백 추가
    (로딩/성공/에러는 .state-screen이 붙어서 헤더가 없으니 제외) */
 .voice-screen:not(.state-screen) {

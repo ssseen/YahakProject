@@ -1,3 +1,44 @@
+// ---- 발음용 목소리 선택 ----
+// 애플 기기의 장난용/저품질 목소리 (이름 앞부분 기준)
+const BLOCKED_VOICES = [
+  'Grandpa', 'Grandma', 'Albert', 'Bad News', 'Bahh', 'Bells', 'Boing',
+  'Bubbles', 'Cellos', 'Eddy', 'Flo', 'Fred', 'Good News', 'Jester',
+  'Junior', 'Kathy', 'Organ', 'Ralph', 'Reed', 'Rocko', 'Sandy',
+  'Shelley', 'Superstar', 'Trinoids', 'Whisper', 'Wobble', 'Zarvox',
+];
+// 우선순위: 자연스러운 목소리부터
+const PREFERRED_VOICES = [
+  'Microsoft Aria', 'Microsoft Jenny', 'Google US English',
+  'Samantha', 'Microsoft Zira', 'Karen', 'Daniel',
+];
+
+let cachedVoice = null;
+
+function pickEnglishVoice() {
+  const voices = speechSynthesis.getVoices();
+  if (!voices.length) return null;
+
+  const norm = (lang) => lang.replace('_', '-').toLowerCase();
+  const english = voices.filter((v) => norm(v.lang).startsWith('en'));
+  const clean = english.filter(
+    (v) => !BLOCKED_VOICES.includes(v.name.split(' (')[0])
+  );
+
+  for (const name of PREFERRED_VOICES) {
+    const found = clean.find((v) => v.name.startsWith(name));
+    if (found) return found;
+  }
+  return clean.find((v) => norm(v.lang) === 'en-us') || clean[0] || null;
+}
+
+// 목소리 목록은 비동기로 로드돼서, 처음엔 빈 배열일 수 있음
+if ('speechSynthesis' in window) {
+  cachedVoice = pickEnglishVoice();
+  speechSynthesis.addEventListener('voiceschanged', () => {
+    cachedVoice = pickEnglishVoice();
+  });
+}
+
 // 지문 안 클릭 가능한 단어를 눌렀을 때 하단에 뜨는 팝업
 // (단어 + 발음 재생 버튼 + 뜻 + 닫기)
 //
@@ -30,6 +71,9 @@ export function openWordPopup({ word, meaning }) {
     speechSynthesis.cancel(); // 이전에 읽던 게 있으면 멈추고 새로 시작
     const utterance = new SpeechSynthesisUtterance(word);
     utterance.lang = 'en-US';
+    const voice = cachedVoice || pickEnglishVoice(); // 추가: 목소리 직접 지정
+    if (voice) utterance.voice = voice;
+    utterance.rate = 0.85; // 추가: 어르신 대상이라 살짝 천천히
     speechSynthesis.speak(utterance);
   });
 

@@ -378,3 +378,22 @@ button, a {
 #take-photo-btn {
   color: #FFFFFF !important;
 }
+
+/* 뒤로가기 추가 확인 */
+.exit-dialog {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,.5);
+  display: flex; align-items: center; justify-content: center;
+}
+.exit-dialog[hidden] { display: none; }
+.exit-box {
+  width: 300px; padding: 24px 20px;
+  background: #fff; border-radius: 16px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.exit-msg { font-size: 22px; font-weight: 700; text-align: center; margin: 0 0 8px; }
+.exit-btn {
+  min-height: 56px; font-size: 20px; border-radius: 12px;
+  border: 2px solid #1A1A1A; background: #fff; color: #1A1A1A;
+}
+.exit-btn.primary { background: #1A1A1A; color: #fff; }

@@ -1,10 +1,17 @@
 import { navigate } from '../router.js';
 import { getState, setState } from '../state.js';
 import { renderHeader } from '../components/header.js';
+import { startLoading, endLoading } from '../loading-guard.js';
 
 const DEBUG_STEPS = ['ready', 'recording', 'recognizing', 'understanding', 'error'];
 const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app';
-const STT_URL = 'http://localhost:8000/transcribe';
+const STT_URL = 'http://localhost:8000';
+
+// 로딩 중 "나가기"를 눌렀을 때: 사진/질문 상태를 비우고 이전 화면으로
+const LEAVE = () => {
+  setState({ photo: null, question: null });
+  window.history.back();
+};
 
 function getDebugStep() {
   const query = window.location.hash.split('?')[1];
@@ -21,6 +28,7 @@ export function renderVoiceProcessing(container) {
   let audioContext = null;
   let analyser = null;
   let animationFrameId = null;
+  let leftPage = false;
 
   // 실시간 STT (Web Speech API) 상태
   let recognition = null;
@@ -48,6 +56,7 @@ export function renderVoiceProcessing(container) {
   }
 
   function stopAudioStream() {
+    leftPage = true;
     stopSpeechRecognition();
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
@@ -152,6 +161,7 @@ export function renderVoiceProcessing(container) {
     });
 
     mediaRecorder.addEventListener('stop', () => {
+      if (leftPage) return;
       const blob = new Blob(audioChunks, { type: 'audio/webm' });
       uploadVoice(blob);
     });
@@ -194,7 +204,7 @@ export function renderVoiceProcessing(container) {
     showHeader();
     const barsHtml = Array.from({ length: 5 }).map(() => '<span class="wave-bar"></span>').join('');
     container.innerHTML = `
-      <section class="voice-screen">
+      <section class="voice-screen recording-screen">
         <p>말씀이 끝나시면<br />버튼을 눌러주세요</p>
         <div class="wave-bars" aria-hidden="true">
           ${barsHtml}
@@ -258,6 +268,8 @@ export function renderVoiceProcessing(container) {
   }
 
   async function uploadVoice(blob) {
+    const signal = startLoading(LEAVE); // 녹음이 끝나고 처리 시작할 때 1번
+
     const formData = new FormData();
     formData.append('audio_file', blob, 'record.webm');
 
@@ -267,6 +279,7 @@ export function renderVoiceProcessing(container) {
       const res = await fetch(STT_URL, {
         method: 'POST',
         body: formData,
+        signal,
       });
       if (res.ok) {
         const result = await res.json();
@@ -274,6 +287,7 @@ export function renderVoiceProcessing(container) {
         console.log('🎯 Whisper 변환 텍스트:', finalText);
       }
     } catch (err) {
+      if (err.name === 'AbortError') return;
       console.warn('로컬 Whisper 서버 미연결 - 실시간 STT 텍스트를 사용합니다:', err);
     }
 
@@ -283,8 +297,10 @@ export function renderVoiceProcessing(container) {
     }
 
     if (!finalText) {
-      step = 'error';
-      render();
+      endLoading(() => {
+        step = 'error';
+        render();
+      });
       return;
     }
 
@@ -297,19 +313,22 @@ export function renderVoiceProcessing(container) {
 
     // 2) 0.8초 뒤 '질문을 이해하고 있어요' 화면으로 전환하며 이미지+음성을 동시에 제미나이로 전송!
     setTimeout(() => {
-      requestAnalyzeWithImageAndVoice(finalText);
+      requestAnalyzeWithImageAndVoice(finalText, signal); // 같은 로딩으로 이어가기 위해 signal 전달
     }, 800);
   }
 
   // ★ 9번 핵심: 사진(image)과 음성 질문(userQuestion)을 동시에 백엔드(/api/analyze)로 전달 ★
-  async function requestAnalyzeWithImageAndVoice(questionText) {
+  async function requestAnalyzeWithImageAndVoice(questionText, existingSignal) {
+    const signal = existingSignal || startLoading(LEAVE);
+    if (signal.aborted) return; // 인식 성공 화면(0.8초) 동안 나갔으면 중단
+
     step = 'understanding';
     render();
 
     const photoState = getState().photo;
     if (!photoState || !photoState.dataUri) {
       // 만약 사진 없이 음성 페이지로만 테스트 들어온 경우
-      navigate('/solve');
+      endLoading(() => navigate('/solve'));
       return;
     }
 
@@ -321,27 +340,35 @@ export function renderVoiceProcessing(container) {
           image: photoState.dataUri,
           userQuestion: questionText,
         }),
+        signal,
       });
 
       if (!res.ok) {
         console.error('Analyze API 오류:', res.status);
-        step = 'error';
-        render();
+        endLoading(() => {
+          step = 'error';
+          render();
+        });
         return;
       }
 
       const data = await res.json();
       if (data.status === 'success') {
         setState({ question: data });
-        navigate('/solve');
+        endLoading(() => navigate('/solve'));
       } else {
-        step = 'error';
-        render();
+        endLoading(() => {
+          step = 'error';
+          render();
+        });
       }
     } catch (err) {
+      if (err.name === 'AbortError') return;
       console.error('제미나이 연동 네트워크 오류:', err);
-      step = 'error';
-      render();
+      endLoading(() => {
+        step = 'error';
+        render();
+      });
     }
   }
 

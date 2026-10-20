@@ -1,5 +1,6 @@
 import { navigate } from '../router.js';
 import { getState, setState } from '../state.js';
+import { startLoading, endLoading } from '../loading-guard.js';
 
 const DEBUG_STEPS = ['guide', 'loading', 'success', 'error'];
 
@@ -132,6 +133,22 @@ export function renderPhotoProcessing(container) {
   }
 
   async function uploadPhoto(blob) {
+    const signal = startLoading(() => {
+      setState({ photo: null, question: null });
+      window.history.back();
+    });
+    const next = await analyzePhoto(blob, signal);
+    if (next) endLoading(next); // null이면 사용자가 나간 것
+  }
+
+  // 서버 응답을 기다린 뒤, "가드가 치워진 다음에 실행할 동작"을 돌려준다
+  async function analyzePhoto(blob, signal) {
+    const showError = (message) => () => {
+      errorMessage = message;
+      step = 'error';
+      render();
+    };
+
     let dataUri;
     try {
       dataUri = await blobToDataUri(blob);
@@ -140,10 +157,7 @@ export function renderPhotoProcessing(container) {
       setState({ photo: { ...currentPhoto, blob, dataUri } });
     } catch (err) {
       console.error('이미지 변환 실패:', err);
-      errorMessage = '사진을 처리하지 못했어요.\n다시 찍어주세요';
-      step = 'error';
-      render();
-      return;
+      return showError('사진을 처리하지 못했어요.\n다시 찍어주세요');
     }
 
     let res;
@@ -152,62 +166,57 @@ export function renderPhotoProcessing(container) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: dataUri, checkOnly: true }),
+        signal,
       });
     } catch (err) {
+      if (err.name === 'AbortError') return null;
       console.error('네트워크 오류:', err);
-      errorMessage = '서버에 연결할 수 없어요.\n잠시 후 다시 시도해주세요';
-      step = 'error';
-      render();
-      return;
+      return showError('서버에 연결할 수 없어요.\n잠시 후 다시 시도해주세요');
     }
 
     if (!res.ok) {
       const detail = await res.text();
       console.error('HTTP ' + res.status, detail);
-      errorMessage = '잠시 문제가 생겼어요.\n다시 시도해주세요';
-      step = 'error';
-      render();
-      return;
+      return showError('잠시 문제가 생겼어요.\n다시 시도해주세요');
     }
 
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch (err) {
+      if (err.name === 'AbortError') return null;
+      return showError('잠시 문제가 생겼어요.\n다시 시도해주세요');
+    }
 
     switch (data.status) {
       case 'checked':
         // 화질 검증 통과 -> 아직 제미나이는 안 돌렸으므로 question은 비워두고 음성 페이지로 이동
-        setState({ question: null });
-        step = 'success';
-        render();
-        setTimeout(() => navigate('/voice'), 700);
-        break;
+        return () => {
+          setState({ question: null });
+          step = 'success';
+          render();
+          setTimeout(() => navigate('/voice'), 700);
+        };
 
       case 'success':
         // 구버전 서버 응답인 경우 일단 저장해두되, 음성 질문을 하면 다시 덮어씀
-        setState({ question: data });
-        step = 'success';
-        render();
-        setTimeout(() => navigate('/voice'), 700);
-        break;
+        return () => {
+          setState({ question: data });
+          step = 'success';
+          render();
+          setTimeout(() => navigate('/voice'), 700);
+        };
 
       case 'retake':
-        errorMessage = data.message || '사진을 인식하지 못했어요.\n다시 찍어주세요';
-        step = 'error';
-        render();
-        break;
+        return showError(data.message || '사진을 인식하지 못했어요.\n다시 찍어주세요');
 
       case 'unsupported_subject':
-        errorMessage = data.message || '아직 지원하지 않는 과목이에요.\n다른 과목으로 시도해주세요';
-        step = 'error';
-        render();
-        break;
+        return showError(data.message || '아직 지원하지 않는 과목이에요.\n다른 과목으로 시도해주세요');
 
       case 'error':
       default:
         console.error(data);
-        errorMessage = '잠시 문제가 생겼어요.\n다시 시도해주세요';
-        step = 'error';
-        render();
-        break;
+        return showError('잠시 문제가 생겼어요.\n다시 시도해주세요');
     }
   }
 

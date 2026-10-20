@@ -12,8 +12,25 @@ from dataclasses import dataclass, field
 from statistics import median
 
 
-ANCHOR = re.compile(r'^\s*(\d{1,2})\s*[.)]')
+ANCHOR = re.compile(r'^\s*(\d{1,2})\s*[.)](?!\d)')
 RANGE_HEADER = re.compile(r'^\[(\d+)\s*[~～\-]\s*(\d+)\]\s*(.+)')
+
+# 문항 번호가 아니라 각주/용어 풀이("1) 슬쿼지: 실컷, 마음껏.")를 앵커로 오인하지
+# 않기 위한 필터. 콜론 앞이 한글/한자 용어(공백·괄호 포함)뿐일 때만 각주로 본다 -
+# 숫자나 로마자가 섞여 있으면 "7 : 10"(비율) "f:X→Y"(함수 표기) 같은 실제 문항
+# 본문일 가능성이 높아서(실측 사례: 16.jpg 20번, 30.jpg 17번이 이렇게 걸러졌었음)
+# 각주로 치지 않는다.
+_FOOTNOTE_COLON = re.compile(r'^[가-힣一-龥()（）\s,.]{1,20}[:：]')
+
+
+def _is_likely_footnote(text: str) -> bool:
+    return bool(_FOOTNOTE_COLON.match(_strip_anchor(text)))
+
+# "이 컬럼에서 확실한 앵커를 못 찾았는데 손끝은 첫 앵커보다도 훨씬 위에 있다"거나
+# "단 하나뿐인 앵커가 감당하기엔 밴드가 비정상적으로 넓다" 같은, 근거가 지나치게
+# 빈약한 상황에서 LocateError로 포기시키는 기준 (median_h의 배수).
+_FALLBACK_GAP_MULT = 5
+_SINGLE_ANCHOR_SPAN_MULT = 15
 
 
 class LocateError(Exception):
@@ -36,6 +53,13 @@ class LocateResult:
     anchor_recovered: bool
     locate_confidence: str  # "high" | "low"
     fallback_level: int
+    # 이 문항이 속한 컬럼의 좌우 범위와 밴드(이 문항~다음 문항)의 상하 범위. box는 이
+    # 범위 안의 텍스트 줄만으로 만든 타이트한 박스라 그림·표처럼 글자 없는 내용은 못
+    # 담는다 - 이 범위는 이미 번호 앵커 기준으로 검증된 신뢰 가능한 영역이므로, 그
+    # 안에서 글자 없는 잉크(그림·표)를 추가로 찾아 박스를 보강할 때 쓴다
+    # (정확도검증test/experiment_ink_augment.py 참고).
+    col_x_range: tuple[float, float]
+    band_y_range: tuple[float, float]
 
 
 @dataclass
@@ -123,8 +147,19 @@ def _build_columns(lines: list[Line], gap: float):
         # 이유로 잘못 배정됐다 - 컬럼은 "그 지점부터 다음 컬럼이 시작되기 전까지"의
         # 영역이지, 기준선과의 거리로 나뉘는 게 아니다.
         pos = bisect.bisect_right(col_lefts, x0) - 1
-        best = max(pos, 0)
-        col_indices[best].append(i)
+        if pos < 0:
+            # 등록된 컬럼 중 가장 왼쪽보다도 멀리 왼쪽에 있는 줄 - 그 왼쪽에 "번호
+            # 앵커가 전혀 안 잡힌" 또 다른 컬럼(고아 컬럼)이 있다는 뜻일 수 있다.
+            # 실측 사례(35.jpg): 사진 프레임 밖에 번호가 있어 왼쪽 컬럼에 앵커가
+            # 하나도 안 잡혔는데, 그 컬럼의 보기 텍스트("was beautiful.")가 유일하게
+            # 등록된 오른쪽 컬럼(13/14번)에 그대로 쓸려 들어가 보기 ④ 뒤에 엉뚱하게
+            # 이어붙었다. 컬럼 간격(gap) 넘게 떨어져 있으면 억지로 끼워넣지 않고
+            # 아예 제외한다 - 소속을 모르는 줄은 안 쓰는 게, 엉뚱한 문항에 잘못
+            # 붙이는 것보다 낫다.
+            if col_lefts[0] - x0 > gap:
+                continue
+            pos = 0
+        col_indices[pos].append(i)
 
     return list(zip(col_lefts, col_indices))
 
@@ -152,7 +187,7 @@ def _build_anchors_for_column(col_indices: list[int], lines: list[Line], headers
     for i in sorted_idx:
         l = lines[i]
         m = ANCHOR.match(l.text)
-        if m:
+        if m and not _is_likely_footnote(l.text):
             candidates.append((int(m.group(1)), l.bbox[1], l.bbox[3]))
 
     # LIS: num 기준 최장 증가 부분수열 (읽는 순서 = y 오름차순 유지)
@@ -257,8 +292,17 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
 
     col, anchors, col_left = target_col
 
+    # 이 컬럼의 오른쪽 경계 = 다음 컬럼의 왼쪽 경계(없으면 페이지 끝)
+    col_lefts_sorted = sorted(c[2] for c in col_anchors)
+    later = [cl for cl in col_lefts_sorted if cl > col_left]
+    col_right = min(later) if later else page_w
+
     if not anchors:
         raise LocateError("이 컬럼에서 번호 앵커를 하나도 찾지 못함 (폴백 사다리 미구현 구간)")
+
+    # LIS 통과 후 이 컬럼에 남은(복구분 제외) 실제 검출 앵커 수. 아래 두 폴백 분기의
+    # 신뢰도 판단과 fallback_level 계산에 공통으로 쓴다.
+    detected_count = sum(1 for a in anchors if not a.recovered)
 
     # target보다 위(또는 같은 y)에 있는 마지막 앵커 = target이 속한 밴드의 시작 앵커
     anchors_sorted = sorted(anchors, key=lambda a: a.top)
@@ -272,8 +316,18 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
             break
 
     if band_anchor is None:
-        # 손끝이 첫 앵커보다도 위에 있는 경우: 첫 앵커로 폴백
-        band_anchor = anchors_sorted[0]
+        # 손끝이 첫 앵커보다도 위에 있는 경우: 보통은 진짜로 1번 문항 번호 바로
+        # 위를 짚은 정상적인 상황이라 첫 앵커로 폴백하지만, 그 앵커가 손끝에서
+        # 비정상적으로 멀면(예: 진짜 앵커가 LIS에서 잘못 걸러져 컬럼에 남은 게
+        # 각주/오인식 번호뿐인 경우) 그 값은 신뢰할 근거가 없으므로 포기한다.
+        first_anchor = anchors_sorted[0]
+        gap = first_anchor.top - target.bbox[1]
+        if gap > median_h * _FALLBACK_GAP_MULT:
+            raise LocateError(
+                f"손끝이 이 컬럼의 첫 앵커({first_anchor.num}번, top={first_anchor.top})보다 "
+                f"{gap:.0f}px 위에 있음(median_h={median_h:.0f}px) - 신뢰할 수 없어 포기"
+            )
+        band_anchor = first_anchor
         next_top = anchors_sorted[1].top if len(anchors_sorted) > 1 else None
 
     band_top = band_anchor.top
@@ -297,6 +351,19 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
                 band_bottom = prev_l.bbox[3]
                 break
 
+        # 이 컬럼에 검출된 앵커가 단 1개뿐이면(뒤를 받쳐줄 다음 앵커가 없어 위
+        # 간격 휴리스틱에만 의존) 그 앵커 자체가 오인식일 위험이 있다. 손끝이
+        # 그 앵커에서 비정상적으로 멀리 떨어진 곳까지 밴드로 묶였다면(실측 사례:
+        # 표 안의 소수 "0.1"이 앵커로 오인식되어 한참 아래 진짜 문항까지 삼킴)
+        # 포기한다.
+        if detected_count == 1:
+            span = fy - band_top
+            if span > median_h * _SINGLE_ANCHOR_SPAN_MULT:
+                raise LocateError(
+                    f"이 컬럼의 유일한 앵커({band_anchor.num}번, top={band_top})에서 손끝까지 "
+                    f"{span:.0f}px 떨어짐(median_h={median_h:.0f}px) - 근거가 앵커 하나뿐이라 포기"
+                )
+
     band_lines = [l for i, l in enumerate(body_lines) if i in col and band_top <= l.bbox[1] < band_bottom]
 
     num = band_anchor.num
@@ -318,14 +385,17 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
     query_parts = ([range_header_text] if range_header_text else []) + stripped_bodies
     query_text = " ".join(p for p in query_parts if p)
 
-    box_sources = ([header_line.bbox] if header_line else []) + [l.bbox for l in band_lines]
+    # 범위 지시문("[11~13] 다음 글을 읽고...")은 query_text에만 넣고 박스에는 넣지 않는다.
+    # 넣으면 13번을 짚어도 박스가 지시문까지 늘어나 공유 지문 전체를 덮고, 지시문이 옆
+    # 컬럼에 있으면 두 컬럼에 걸친 박스가 된다 (100장 실측: 박스 IoU 53.7%→59.6%).
+    # 밴드에 줄이 하나도 없는 예외 상황에서만 지시문 줄로 폴백한다.
+    box_sources = [l.bbox for l in band_lines] or ([header_line.bbox] if header_line else [])
     x1 = min(b[0] for b in box_sources)
     y1 = min(b[1] for b in box_sources)
     x2 = max(b[2] for b in box_sources)
     y2 = max(b[3] for b in box_sources)
 
-    # LIS 통과 후 이 컬럼에 남은(복구분 제외) 실제 검출 앵커 수로 fallback_level 판단
-    detected_count = sum(1 for a in anchors if not a.recovered)
+    # fallback_level 판단 (detected_count는 위에서 이미 계산됨)
     if detected_count >= 2:
         fallback_level = 1
     elif detected_count == 1:
@@ -342,4 +412,6 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
         anchor_recovered=anchor_recovered,
         locate_confidence=locate_confidence,
         fallback_level=fallback_level,
+        col_x_range=(col_left, col_right),
+        band_y_range=(band_top, band_bottom),
     )
