@@ -65,14 +65,28 @@ export function renderPhotoProcessing(container) {
     const video = container.querySelector('#camera-video');
 
     try {
+      // 해상도를 안 정하면 브라우저 기본값(보통 640x480)으로 찍혀서 글자가 뭉개짐
+      // ideal만 쓰면 기기가 지원하는 가장 가까운 해상도로 맞춰줌 (지원 안 해도 에러 안 남)
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+        },
         audio: false,
       });
       video.srcObject = stream;
 
       const [track] = stream.getVideoTracks();
       const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+      // 안드로이드 크롬: 연속 자동초점 (아이폰은 기본 동작이라 해당 없음)
+      if (capabilities.focusMode && capabilities.focusMode.includes('continuous')) {
+        track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+      }
+      video.addEventListener('loadedmetadata', () => {
+        console.log(`📷 카메라 해상도: ${video.videoWidth}x${video.videoHeight}`);
+      }, { once: true });
+
       if (capabilities.torch) {
         const flashBtn = container.querySelector('#flash-btn');
         flashBtn.hidden = false;
