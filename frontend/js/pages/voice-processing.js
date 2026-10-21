@@ -5,7 +5,12 @@ import { startLoading, endLoading } from '../loading-guard.js';
 
 const DEBUG_STEPS = ['ready', 'recording', 'recognizing', 'understanding', 'error'];
 const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app';
-const STT_URL = 'http://localhost:8000';
+// Whisper STT 서버 (whisper/ 폴더를 Cloud Run에 따로 배포한 서비스)
+// 배포 후 나온 서비스 URL로 바꿔 넣기. 로컬에서 열면 로컬 백엔드(main.py)의 /transcribe 사용
+const STT_BASE = ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  ? 'http://localhost:8000'
+  : 'https://yahak-stt-815747505478.asia-northeast3.run.app';
+const STT_URL = STT_BASE + '/transcribe';
 
 // 로딩 중 "나가기"를 눌렀을 때: 사진/질문 상태를 비우고 이전 화면으로
 const LEAVE = () => {
@@ -30,9 +35,6 @@ export function renderVoiceProcessing(container) {
   let animationFrameId = null;
   let leftPage = false;
 
-  // 실시간 STT (Web Speech API) 상태
-  let recognition = null;
-  let liveTranscript = '';
   let recognizedText = '';
 
   function render() {
@@ -43,21 +45,8 @@ export function renderVoiceProcessing(container) {
     else renderError();
   }
 
-  function stopSpeechRecognition() {
-    if (recognition) {
-      try {
-        recognition.onend = null;
-        recognition.stop();
-      } catch (e) {
-        // ignore
-      }
-      recognition = null;
-    }
-  }
-
   function stopAudioStream() {
     leftPage = true;
-    stopSpeechRecognition();
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
       animationFrameId = null;
@@ -101,46 +90,6 @@ export function renderVoiceProcessing(container) {
     });
   }
 
-  function startLiveSpeechRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    liveTranscript = '';
-    recognition = new SpeechRecognition();
-    recognition.lang = 'ko-KR';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event) => {
-      let finalStr = '';
-      let interimStr = '';
-      for (let i = 0; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalStr += transcript + ' ';
-        } else {
-          interimStr += transcript;
-        }
-      }
-      liveTranscript = (finalStr + interimStr).trim();
-      const liveBox = container.querySelector('#live-stt-text');
-      if (liveBox && liveTranscript) {
-        liveBox.textContent = '"' + liveTranscript + '"';
-        liveBox.style.color = 'var(--color-text)';
-      }
-    };
-
-    recognition.onerror = (e) => {
-      console.warn('실시간 STT 경고:', e.error);
-    };
-
-    try {
-      recognition.start();
-    } catch (e) {
-      console.warn('실시간 STT 시작 실패:', e);
-    }
-  }
-
   async function startRecording() {
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -152,7 +101,6 @@ export function renderVoiceProcessing(container) {
     }
 
     audioChunks = [];
-    liveTranscript = '';
     recognizedText = '';
     mediaRecorder = new MediaRecorder(stream);
 
@@ -171,7 +119,6 @@ export function renderVoiceProcessing(container) {
     step = 'recording';
     render();
     startVolumeMeter();
-    startLiveSpeechRecognition();
   }
 
   function startVolumeMeter() {
@@ -209,17 +156,12 @@ export function renderVoiceProcessing(container) {
         <div class="wave-bars" aria-hidden="true">
           ${barsHtml}
         </div>
-        <!-- 1번: 실시간으로 말하는 텍스트가 뜨는 영역 -->
-        <p id="live-stt-text" style="min-height: 48px; margin: 12px 24px; padding: 10px 14px; background: #F5F5F5; border-radius: 10px; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; word-break: keep-all;">
-          말씀하시는 내용이 여기에 실시간으로 표시됩니다...
-        </p>
         <button class="stop-btn" id="stop-btn" type="button" aria-label="녹음 종료">
           <img src="image/stop_btn.svg" alt="" aria-hidden="true" class="stop-icon" />
         </button>
       </section>
     `;
     container.querySelector('#stop-btn').addEventListener('click', () => {
-      stopSpeechRecognition();
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
@@ -285,15 +227,12 @@ export function renderVoiceProcessing(container) {
         const result = await res.json();
         finalText = (result.text || '').trim();
         console.log('🎯 Whisper 변환 텍스트:', finalText);
+      } else {
+        console.error('Whisper 서버 오류:', res.status);
       }
     } catch (err) {
       if (err.name === 'AbortError') return;
-      console.warn('로컬 Whisper 서버 미연결 - 실시간 STT 텍스트를 사용합니다:', err);
-    }
-
-    // 로컬 Whisper 결과가 비어있거나 서버가 꺼져 있으면 실시간 STT(liveTranscript)로 폴백
-    if (!finalText && liveTranscript) {
-      finalText = liveTranscript.trim();
+      console.error('Whisper 서버 연결 실패:', err);
     }
 
     if (!finalText) {
