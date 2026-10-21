@@ -5,7 +5,7 @@ import { startLoading, endLoading } from '../loading-guard.js';
 
 const DEBUG_STEPS = ['ready', 'recording', 'recognizing', 'understanding', 'error'];
 const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app';
-const STT_URL = 'http://localhost:8000';
+const STT_URL = 'https://yahak-stt-815747505478.asia-northeast3.run.app';
 
 // 로딩 중 "나가기"를 눌렀을 때: 사진/질문 상태를 비우고 이전 화면으로
 const LEAVE = () => {
@@ -276,7 +276,7 @@ export function renderVoiceProcessing(container) {
     let finalText = '';
 
     try {
-      const res = await fetch(STT_URL, {
+      const res = await fetch(STT_URL + '/transcribe', {
         method: 'POST',
         body: formData,
         signal,
