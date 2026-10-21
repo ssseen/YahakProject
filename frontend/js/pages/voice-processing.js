@@ -35,6 +35,9 @@ export function renderVoiceProcessing(container) {
   let animationFrameId = null;
   let leftPage = false;
 
+  // 실시간 자막(크롬 Web Speech API) - 말하는 동안 화면에 보여주기만 함.
+  // 최종 질문 텍스트는 항상 Whisper 결과를 씀 (자막 텍스트는 서버로 안 보냄)
+  let recognition = null;
   let recognizedText = '';
 
   function render() {
@@ -45,8 +48,50 @@ export function renderVoiceProcessing(container) {
     else renderError();
   }
 
+  function stopLiveCaption() {
+    if (recognition) {
+      try {
+        recognition.onend = null;
+        recognition.stop();
+      } catch (e) {
+        // ignore
+      }
+      recognition = null;
+    }
+  }
+
+  function startLiveCaption() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return; // 지원 안 하는 브라우저면 자막 없이 녹음만
+
+    recognition = new SpeechRecognition();
+    recognition.lang = 'ko-KR';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+      let text = '';
+      for (let i = 0; i < event.results.length; i++) {
+        text += event.results[i][0].transcript + (event.results[i].isFinal ? ' ' : '');
+      }
+      const box = container.querySelector('#live-caption');
+      if (box && text.trim()) {
+        box.textContent = '"' + text.trim() + '"';
+        box.style.color = 'var(--color-text)';
+      }
+    };
+    recognition.onerror = (e) => console.warn('실시간 자막 경고:', e.error);
+
+    try {
+      recognition.start();
+    } catch (e) {
+      console.warn('실시간 자막 시작 실패:', e);
+    }
+  }
+
   function stopAudioStream() {
     leftPage = true;
+    stopLiveCaption();
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
       animationFrameId = null;
@@ -119,6 +164,7 @@ export function renderVoiceProcessing(container) {
     step = 'recording';
     render();
     startVolumeMeter();
+    startLiveCaption();
   }
 
   function startVolumeMeter() {
@@ -156,12 +202,16 @@ export function renderVoiceProcessing(container) {
         <div class="wave-bars" aria-hidden="true">
           ${barsHtml}
         </div>
+        <p id="live-caption" style="min-height: 48px; margin: 12px 24px; padding: 10px 14px; background: #F5F5F5; border-radius: 10px; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; word-break: keep-all;">
+          말씀하시는 내용이 여기에 실시간으로 표시됩니다...
+        </p>
         <button class="stop-btn" id="stop-btn" type="button" aria-label="녹음 종료">
           <img src="image/stop_btn.svg" alt="" aria-hidden="true" class="stop-icon" />
         </button>
       </section>
     `;
     container.querySelector('#stop-btn').addEventListener('click', () => {
+      stopLiveCaption();
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
