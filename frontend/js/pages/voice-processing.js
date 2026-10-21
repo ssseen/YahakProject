@@ -1,5 +1,5 @@
 import { navigate } from '../router.js';
-import { getState, setState } from '../state.js';
+import { getState, setState, getUserLevelForRequest } from '../state.js';
 import { renderHeader } from '../components/header.js';
 import { startLoading, endLoading } from '../loading-guard.js';
 
@@ -278,6 +278,7 @@ export function renderVoiceProcessing(container) {
         body: JSON.stringify({
           image: photoState.dataUri,
           userQuestion: questionText,
+          userLevel: getUserLevelForRequest(),
         }),
         signal,
       });

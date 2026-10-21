@@ -15,6 +15,7 @@ const state = {
   settings: {
     fontSize: localStorage.getItem('fontSize') || 'medium',
     speechRate: localStorage.getItem('speechRate') || 'normal',
+    userLevel: localStorage.getItem('userLevel') || '',
   },
 };
 
@@ -56,6 +57,16 @@ export function applyFontSize(size) {
 export function applySpeechRate(rate) {
   localStorage.setItem('speechRate', rate);
   setState({ settings: { ...state.settings, speechRate: rate } });
+}
+
+export function applyUserLevel(level) {
+  localStorage.setItem('userLevel', level);
+  setState({ settings: {...state.settings, userLevel: level }})
+}
+
+export function getUserLevelForRequest() {
+  const level = state.settings.userLevel;
+  return level === '초졸' || level === '중졸' || level === '고졸' ? level : null;
 }
 
 export function resetQuestionFlow() {

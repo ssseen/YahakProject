@@ -52,6 +52,14 @@ def _match_subject(m):
 def _match_id(m):
     return getattr(m, "id", None)
 
+_VALID_LEVELS = ("초졸", "중졸", "고졸")
+
+def _match_level(m):
+    fields = getattr(m, "fields", None) or {}
+    if isinstance(fields, dict):
+        return fields.get("exam_type")
+    return getattr(fields, "exam_type", None)
+
 
 def latin_ratio(t: str) -> float:
     latin = sum(1 for c in t if c.isascii() and c.isalpha())
@@ -105,7 +113,7 @@ def decide_branch(matches, query_text: str) -> BranchResult:
     )
 
 
-def select_similar(matches, branch: str, exclude_id=None) -> list:
+def select_similar(matches, branch: str, exclude_id=None, user_level=None) :
     """
     branch에 속하는 항목 중 2위부터 최대 3건을 점수 하한선 없이 반환한다
     (근거는 모듈 docstring의 SIMILAR_THRESHOLD 주석 참고).
@@ -115,6 +123,7 @@ def select_similar(matches, branch: str, exclude_id=None) -> list:
     "유사문제"로 보여주면 방금 푼 문제가 그대로 다시 나오는 꼴이 된다(실측으로 확인됨 -
     소스 문항을 exclude_id로 걸러낼 방법이 없는 상태에서는 1위가 사실상 자기 자신).
     "연습용으로 다른 문제를 풀어보는" 기능 취지에 안 맞으므로, 2위부터를 후보로 쓴다.
+    user_level이 있으면 같은 학력만.
     """
     eligible = []
     for m in matches:
@@ -122,6 +131,8 @@ def select_similar(matches, branch: str, exclude_id=None) -> list:
             continue
         subj = _match_subject(m)
         if subj not in BRANCH_OF or BRANCH_OF[subj] != branch:
+            continue
+        if user_level in _VALID_LEVELS and _match_level(m) != user_level:
             continue
         eligible.append(m)
 

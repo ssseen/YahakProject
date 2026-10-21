@@ -33,7 +33,7 @@ _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(os.path.join(_STATIC_DIR, "diagrams"), exist_ok=True)
 app.mount("/diagrams", StaticFiles(directory=os.path.join(_STATIC_DIR, "diagrams")), name="diagrams")
 
-# CORS 설정 (프론트 localhost:5173, VSCode Live Server 127.0.0.1:5500 허용)
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -46,11 +46,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_VALID_LEVELS = { "초졸", "중졸", "고졸" }
 
 class AnalyzeRequest(BaseModel):
     image: str
     userQuestion: str = "이 문제 좀 알려줘"
     checkOnly: bool = False
+    userLevel: str | None = None
 
 
 def _save_base64_image(base64_image: str) -> str:
@@ -101,8 +103,9 @@ async def analyze(req: AnalyzeRequest):
             x, y = vision_result["x"], vision_result["y"]
         else:
             x, y = None, None
-
-        result = run_pipeline(image_path, x, y, user_question=req.userQuestion)
+            
+        user_level = req.userLevel if req.userLevel in _VALID_LEVELS else None
+        result = run_pipeline(image_path, x, y, user_question=req.userQuestion, user_level=user_level)
     finally:
         os.remove(image_path)
 

@@ -1,6 +1,6 @@
 // 기본 오프라인 캐싱 - 앱 껍데기(HTML/CSS/JS/이미지)만 캐싱하고,
 // 실제 API 호출(/api/analyze, /transcribe)은 캐싱하지 않는다 (매번 새 데이터가 필요하니까).
-const CACHE_NAME = 'geomgosim-v1';
+const CACHE_NAME = 'geomgosim-v2';
 
 // 앱 실행에 꼭 필요한 최소 파일들. 새 페이지/이미지를 추가하면 여기도 같이 추가해야 함.
 const CORE_ASSETS = [

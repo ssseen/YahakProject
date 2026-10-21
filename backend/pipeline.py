@@ -7,7 +7,7 @@
      이미지에서 다시 검출해서 애초에 좌표계를 하나로 맞춘다 (변환 버그 여지 자체를 제거).
   3) Clova OCR 호출 -> 줄 목록(app.clova_client.to_lines)
   4) question_locator로 손끝이 가리키는 문항 특정 (번호 앵커 + 밴드, 자르지 않고 표시만)
-  5) Pinecone 무필터 검색 1회 (top_k=10) -> 같은 결과를 과목 판정과 유사문제 선별에 나눠 씀
+  5) Pinecone 무필터 검색 1회 (top_k=30) -> 같은 결과를 과목 판정과 유사문제 선별에 나눠 씀
   6) subject_router로 과목(영어/수학/국사과) 판정
   7) 국어/사회/과학이면 explain_guksagwa로, 영어면 explain_english로, 수학이면 explain_math로 Gemini 2차 호출
      (v2의 유일한 LLM 호출)
@@ -36,6 +36,10 @@ from app.deskew import (
     estimate_skew_ocr, deskew_matrix, warp_response, warp_point, warp_image, MIN_SKEW_DEG, MAX_SKEW_DEG,
 )
 from app.subject_router import decide_branch, select_similar, BRANCH_OF
+try:
+    from type_classifier import classify_type
+except ImportError:
+    classify_type = None
 from guksagwa_explainer import explain_guksagwa
 from english_explainer import explain_english
 from math_explainer import explain_math
@@ -45,7 +49,7 @@ load_dotenv()
 
 _PINECONE_INDEX_NAME = "geondi-questions"
 _PINECONE_NAMESPACE = "questions"
-_PINECONE_TOP_K = 10
+_PINECONE_TOP_K = 30
 _BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 _OPTION_MARKERS = "①②③④"
@@ -81,7 +85,7 @@ def _get_pinecone_index():
 
 def _search_unfiltered(query_text):
     """
-    Pinecone 무필터 검색 1회 (top_k=10). 이 결과를 subject_router.decide_branch(과목 판정)와
+    Pinecone 무필터 검색 1회 (top_k=30). 이 결과를 subject_router.decide_branch(과목 판정)와
     select_similar(유사문제 선별) 양쪽에 그대로 나눠 쓴다 - 절대 두 번 호출하지 않는다.
     필터를 안 거는 이유: 메타데이터 필터에 subject가 필요한데 subject를 얻으려고 이 검색을
     하는 것이므로 순환이기 때문 (app/subject_router.py 모듈 docstring 참고).
@@ -246,7 +250,7 @@ def _explainer_for(branch):
 
 
 def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 알려줘",
-                  classification_override=None, save_path=None):
+                  classification_override=None, save_path=None, user_level=None):
     """
     image_path: 문제지 사진 파일 경로.
     x, y: main.py(analyze_image)가 원본 이미지에서 찾은 손끝 픽셀 좌표 - v2에서는 "손끝이
@@ -286,7 +290,7 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
 
     try:
         result = _run_pipeline_inner(image_path, x, y, stt_text, user_question,
-                                      classification_override)
+                                      classification_override, user_level)
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -310,7 +314,7 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
     return result
 
 
-def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classification_override):
+def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classification_override, user_level=None):
     t_resize = time.perf_counter()
     try:
         resized_bytes, page_w, page_h = resize_for_ocr(image_path)
@@ -420,7 +424,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
           f"anchor_recovered={locate_result.anchor_recovered} "
           f"page_conf_min={ocr_data['page_conf_min']}")
 
-    print("3. Pinecone 검색 (무필터, top_k=10)...")
+    print("3. Pinecone 검색 (무필터, top_k=30)...")
     t_search = time.perf_counter()
     if classification_override is not None:
         matches = []
@@ -431,7 +435,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
         print(f"   classification_override로 강제 지정: branch={branch}")
     else:
         matches = _search_unfiltered(locate_result.query_text)
-        branch_result = decide_branch(matches, locate_result.query_text)
+        branch_result = decide_branch(matches[:10], locate_result.query_text)
         branch = branch_result.branch
         subject_hint = branch_result.subject_hint
         agreement, vote_count, guard = (branch_result.agreement, branch_result.vote_count,
@@ -441,10 +445,21 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
     # [로그] 필수 필드
     print(f"   [로그] agreement={agreement} vote_count={vote_count} guard={guard}")
 
-    similar_questions = _format_similar_questions(select_similar(matches, branch, exclude_id=None))
+    similar_questions = _format_similar_questions(select_similar(matches, branch, exclude_id=None, user_level=user_level))
     below_threshold = not similar_questions
-    category = _category_hint_for_branch(matches, branch)
-
+    category = _category_hint_for_branch(matches[:10], branch)
+    
+    type_info = None
+    if classify_type is not None and os.getenv("ENABLE_TYPE_CLASSIFIER") == "1" and guard is None and subject_hint:
+        try:
+            tr = classify_type(_get_pinecone_index(), locate_result.query_text, subject_hint, user_level)
+            if tr.category_large or tr.category_mid:
+                type_info = {"categoryLarge": tr.category_large,
+                             "categoryMid": tr.category_mid, "sameLevel": tr.same_level}
+        except Exception as e:
+            print(f"경고: 유형 분류 실패, 기존 category 사용: {e!r}")
+            
+            
     box = locate_result.box
     # 화면에 그리는 박스만, 그림·표(글자 없는 영역)를 추가로 포함하도록 보강한다.
     # query_text/low_conf_lines 등 텍스트 기반 판단에는 원래 박스(box)를 그대로 쓴다
@@ -594,6 +609,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
     result["anchor_recovered"] = locate_result.anchor_recovered
     result["similar_questions"] = similar_questions
     result["below_threshold"] = below_threshold
+    result["type_info"] = type_info
 
     return result
 

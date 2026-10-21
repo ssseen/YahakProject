@@ -1,10 +1,14 @@
 import { initRouter } from './router.js';
 import { applyFontSize, getState } from './state.js';
+import { openLevelPromptModal } from './components/settings-modal.js';
 
 // 저장된(또는 기본) 설정값을 부팅 시 CSS에 반영
 applyFontSize(getState().settings.fontSize);
 
 initRouter();
+
+// 학력 설정
+if (!getState().settings.userLevel) openLevelPromptModal();
 
 // PWA 서비스 워커 등록 (지원하는 브라우저에서만)
 if ('serviceWorker' in navigator) {
