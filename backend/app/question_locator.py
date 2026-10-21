@@ -250,6 +250,52 @@ def _longest_increasing(items, key):
     return [items[i] for i in result_idx]
 
 
+def find_page_anchors(lines: list[Line], page_h: int) -> list[tuple[int, tuple[float, float]]]:
+    """
+    손끝 없이 페이지 전체에서 실제로 검출된 문항 번호 앵커를 모은다 (2026-10-21).
+
+    손가락이 안 잡혔을 때 "사진에 문제가 하나뿐이면 그 문제로 진행, 여러 개면 다시
+    찍기"를 판단하는 용도. locate_question과 같은 단계(헤더/푸터 제외 → 컬럼 → 컬럼별
+    앵커)를 밟되, 결번 복구로 채워 넣은 앵커는 실제 번호가 아니므로 세지 않는다.
+
+    반환: [(번호, (x, y)), ...] - (x, y)는 그 번호 줄의 중심. 이 점을 손끝 대신
+    locate_question에 넘기면 그 번호 줄이 최근접 줄로 잡혀 해당 문항이 특정된다.
+    """
+    body_lines = [l for l in lines if page_h * 0.05 < l.bbox[1] < page_h * 0.95]
+    if not body_lines:
+        return []
+    page_w = max(l.bbox[2] for l in body_lines)
+    headers = _find_range_header(body_lines)
+
+    out = []
+    for _, col in _build_columns(body_lines, gap=page_w * 0.15):
+        for a in _build_anchors_for_column(col, body_lines, headers):
+            if a.recovered:
+                continue
+            line = next(body_lines[i] for i in col if body_lines[i].bbox[1] == a.top
+                        and (m := ANCHOR.match(body_lines[i].text)) and int(m.group(1)) == a.num)
+            x0, y0, x1, y1 = line.bbox
+            out.append((a.num, ((x0 + x1) / 2, (y0 + y1) / 2)))
+    return out
+
+
+def single_question_point(lines: list[Line], page_h: int):
+    """
+    사진에 문제가 하나뿐이면 (번호, (x, y))를, 아니면 None을 돌려준다 (2026-10-21).
+
+    번호 앵커가 1개여도 OCR이 다른 번호를 놓친 것일 수 있어서(실측 366.jpg: 9·10번이
+    같이 있는데 10번만 잡힘) 보기 ①의 개수도 같이 본다 - 문항마다 ①은 하나씩이므로
+    ①이 2개 이상이면 문제가 여러 개라고 보고 포기한다. 엉뚱한 문제를 조용히 고르는
+    것보다 다시 찍게 하는 게 낫다.
+    """
+    anchors = find_page_anchors(lines, page_h)
+    body = [l for l in lines if page_h * 0.05 < l.bbox[1] < page_h * 0.95]
+    option1_count = sum(l.text.count("①") for l in body)
+    if len(anchors) != 1 or option1_count > 1:
+        return None
+    return anchors[0]
+
+
 def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> LocateResult:
     fx, fy = finger
 

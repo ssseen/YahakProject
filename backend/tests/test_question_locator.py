@@ -1,4 +1,4 @@
-from app.question_locator import Line, locate_question
+from app.question_locator import Line, locate_question, single_question_point
 
 LINES = [
     Line("2026년도 제1회 중학교 졸업학력 검정고시", (441, 59, 1029, 83)),
@@ -100,3 +100,31 @@ def test_t10_single_anchor_column_cuts_at_large_gap():
     assert r.fallback_level == 2  # 이 컬럼에서 실제로 검출된 앵커는 9번 하나뿐
     assert "What should I do" not in r.query_text
     assert "opt4" in r.query_text
+
+
+# 손끝 없이 찍은 사진: 문제가 하나뿐일 때만 그 문제로 진행 (2026-10-21)
+LINES_SINGLE_QUESTION = [
+    Line("13. 다음 설명에 해당하는 것은?", (100, 300, 700, 322)),
+    Line("○ 핵산의 한 종류이다.", (123, 335, 500, 357)),
+    Line("① RNA ② 인지질 ③ 포도당 ④ 아미노산", (105, 370, 700, 392)),
+]
+
+
+def test_single_question_page_is_used_without_finger():
+    single = single_question_point(LINES_SINGLE_QUESTION, PAGE_H)
+    assert single is not None and single[0] == 13
+    assert locate_question(LINES_SINGLE_QUESTION, single[1], PAGE_H).question_number == 13
+
+
+def test_multi_question_page_needs_retake_without_finger():
+    assert single_question_point(LINES, PAGE_H) is None
+
+
+def test_one_anchor_but_two_option_sets_needs_retake():
+    # 실측 366.jpg: 9·10번이 같이 있는데 OCR이 9번 번호를 놓쳐 앵커가 10번 하나뿐
+    lines = [
+        Line("① 10 ② 12 ③ 14 ④ 16", (105, 250, 700, 272)),
+        Line("10. 함수 f(x)=5x에 대하여 f(2)의 값은?", (100, 300, 700, 322)),
+        Line("① 10 ② 12 ③ 14 ④ 16", (105, 370, 700, 392)),
+    ]
+    assert single_question_point(lines, PAGE_H) is None

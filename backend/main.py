@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from vision_processor import analyze_image
-from pipeline import run_pipeline
+from pipeline import run_pipeline, check_without_finger
 from app.stt_client import SttError
 from app.stt_client import preload as preload_stt
 from app.stt_client import transcribe as transcribe_audio
@@ -88,6 +88,15 @@ async def analyze(req: AnalyzeRequest):
 
     # 사진 촬영 직후 화질/손가락 검사만 먼저 수행하는 경우 제미나이를 돌리지 않고 즉시 응답
     if req.checkOnly:
+        # 손끝이 없으면 사진에 문제가 하나뿐일 때만 통과 - 여러 개면 여기서 바로 다시 찍기 안내
+        if not vision_result["finger_detected"]:
+            image_path = _save_base64_image(req.image)
+            try:
+                fail = check_without_finger(image_path)
+            finally:
+                os.remove(image_path)
+            if fail is not None:
+                return fail
         return {
             "status": "checked",
             "finger_detected": vision_result["finger_detected"],

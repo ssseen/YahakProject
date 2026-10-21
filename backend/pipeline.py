@@ -30,7 +30,7 @@ import os
 
 from vision_processor import find_finger_tip, augment_box_with_ink
 from app.clova_client import resize_for_ocr, call_clova, to_lines, rotate_image_bytes, ClovaError
-from app.question_locator import locate_question, LocateError
+from app.question_locator import locate_question, single_question_point, LocateError
 from app.orientation import detect_rotation, rotate_response, rotate_point, rotate_image, upright_size
 from app.deskew import (
     estimate_skew_ocr, deskew_matrix, warp_response, warp_point, warp_image, MIN_SKEW_DEG, MAX_SKEW_DEG,
@@ -211,7 +211,7 @@ def _format_similar_questions(matches):
 
 
 _RETAKE_MESSAGES = {
-    "no_finger": "손끝을 찾지 못했어요.\n손가락으로 문제를 짚어주세요",
+    "no_finger": "손끝이 검출되지 않았습니다.\n다시 찍어주세요",
     "no_text": "글자를 읽지 못했어요.\n다시 찍어주세요",
     "location_failed": "문제 위치를 찾지 못했어요.\n다시 찍어주세요",
     "rotation_misdetected": "사진을 다시 읽지 못했어요.\n다시 찍어주세요",
@@ -314,6 +314,110 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
     return result
 
 
+def _ocr_upright(resized_bytes, resized_img, page_w, page_h, fx, fy):
+    """
+    Clova OCR + 좌표계 보정(Clova 크기 불일치 재시도, 방향 세우기, 기울기 펴기)을 한다.
+    손끝 좌표(fx, fy)도 같은 변환을 받는다 - 손끝이 없으면(None) 좌표 변환만 건너뛴다.
+
+    반환: (실패 응답, None) 또는 (None, (ocr_data, resized_img, page_w, page_h, fx, fy))
+    """
+    print("1. Clova OCR 호출...")
+    t_ocr = time.perf_counter()
+    try:
+        clova_response = call_clova(resized_bytes)
+    except ClovaError as e:
+        return {"status": "error", "message": f"OCR 호출 실패: {e}"}, None
+    ocr_data = to_lines(clova_response)
+    print(f"   줄 {len(ocr_data['lines'])}개, page_conf_min={ocr_data['page_conf_min']} "
+          f"({time.perf_counter() - t_ocr:.2f}초)")
+
+    if not ocr_data["lines"]:
+        return _retake_response(reason="no_text"), None
+
+    # Clova가 우리가 보낸 사진과 다른 크기(가로/세로 뒤바뀜)로 응답한 경우 - 사진을 내부에서
+    # 돌려 읽은 것이라 좌표계가 우리 사진과 안 맞는다(실측 35.jpg, 100장 중 1장). 이때만
+    # 예전처럼 사진을 90도 돌려 Clova를 1회 다시 부른다.
+    clova_size = (ocr_data["page_w"], ocr_data["page_h"])
+    if None not in clova_size and clova_size != (page_w, page_h):
+        print(f"경고: Clova 응답 크기 {clova_size}가 보낸 사진 {(page_w, page_h)}와 다름 "
+              "- 90도 회전 후 재시도")
+        try:
+            rot_bytes, rot_w, rot_h = rotate_image_bytes(resized_bytes)
+            clova_response = call_clova(rot_bytes)
+        except ClovaError as e:
+            return {"status": "error", "message": f"OCR 재시도 실패: {e}"}, None
+        retry_data = to_lines(clova_response)
+        if not retry_data["lines"] or (retry_data["page_w"], retry_data["page_h"]) != (rot_w, rot_h):
+            print("   -> 회전 재시도도 좌표계 불일치 - 재촬영 필요")
+            return _retake_response(reason="rotation_misdetected"), None
+        # Image.rotate(90, expand=True) 방향(반시계) 기준 좌표 변환: 회전 전
+        # 페이지 폭(page_w) 기준으로 새 x = 기존 y, 새 y = (page_w - 1) - 기존 x.
+        if fx is not None:
+            fx, fy = fy, page_w - 1 - fx
+        page_w, page_h = rot_w, rot_h
+        resized_img = cv2.imdecode(np.frombuffer(rot_bytes, np.uint8), cv2.IMREAD_COLOR)
+        ocr_data = retry_data
+
+    # 종이를 옆으로/거꾸로 놓고 찍은 사진은 Clova가 글자는 제대로 읽지만 좌표 축이 누워
+    # 있다. 단어 좌표로 글 읽는 방향을 판정해 줄·손끝·이미지를 똑바로 세운다 (Clova 재호출
+    # 없음, app/orientation.py 참고). 이후 단계(문항 특정, 빨간 박스, Gemini)는 전부
+    # 세운 좌표계에서 동작한다.
+    angle, votes = detect_rotation(clova_response)
+    if angle:
+        print(f"   페이지가 {angle}도 누워 있음 (득표 {votes}) - 똑바로 세움")
+        clova_response = rotate_response(clova_response, angle, page_w, page_h)
+        if fx is not None:
+            fx, fy = rotate_point(fx, fy, angle, page_w, page_h)
+        resized_img = rotate_image(resized_img, angle)
+        page_w, page_h = upright_size(angle, page_w, page_h)
+
+    # 살짝(1~20도) 기운 사진은 줄 박스가 위아래로 부풀어 옆 줄·옆 문항과 겹친다. OCR 단어
+    # 좌표로 줄 기울기를 재서 사진(cv2.warpAffine)과 단어 꼭짓점·손끝을 같은 행렬로 편 뒤
+    # 줄을 다시 묶는다 (Clova 재호출 없음, app/deskew.py 참고). 415장을 인위적으로 15도
+    # 기울인 실험에서 문항 특정 89.0% -> 96.8%.
+    skew = estimate_skew_ocr(clova_response)
+    if skew is not None and MIN_SKEW_DEG <= abs(skew) <= MAX_SKEW_DEG:
+        print(f"   페이지가 {skew:.1f}도 기울어 있음 - 수평으로 폄")
+        M, nw, nh = deskew_matrix(skew, page_w, page_h)
+        clova_response = warp_response(clova_response, M, nw, nh)
+        if fx is not None:
+            fx, fy = warp_point(fx, fy, M)
+        resized_img = warp_image(resized_img, M, nw, nh)
+        page_w, page_h = nw, nh
+
+    # 방향·기울기 보정이 적용됐을 수 있으므로 보정된 단어 좌표로 줄을 다시 묶는다
+    # (보정이 없었으면 처음과 같은 결과).
+    ocr_data = to_lines(clova_response)
+
+    return None, (ocr_data, resized_img, page_w, page_h, fx, fy)
+
+
+def check_without_finger(image_path):
+    """
+    사진 촬영 직후 검사(checkOnly)에서 손끝이 안 잡혔을 때 부른다 (2026-10-21).
+    사진에 문제가 하나뿐이면 None(그대로 진행), 아니면 다시 찍기/에러 응답을 돌려준다 -
+    음성 질문까지 받은 뒤에야 다시 찍으라고 하지 않도록 촬영 단계에서 미리 판단한다.
+    run_pipeline도 손끝이 없으면 같은 판단을 다시 한다(OCR 1회 추가, 손끝 없는 경우만).
+    """
+    try:
+        resized_bytes, page_w, page_h = resize_for_ocr(image_path)
+    except Exception as e:
+        return {"status": "error", "message": f"이미지를 읽을 수 없음: {e}"}
+    resized_img = cv2.imdecode(np.frombuffer(resized_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if resized_img is None:
+        return {"status": "error", "message": "이미지 디코딩 실패"}
+
+    fail, ctx = _ocr_upright(resized_bytes, resized_img, page_w, page_h, None, None)
+    if fail is not None:
+        return fail
+    ocr_data, _, _, page_h, _, _ = ctx
+    single = single_question_point(ocr_data["lines"], page_h)
+    print(f"   손끝 없음 - 문제 하나뿐: {single[0] if single else '아님'}")
+    if single is None:
+        return _retake_response(reason="no_finger")
+    return None
+
+
 def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classification_override, user_level=None):
     t_resize = time.perf_counter()
     try:
@@ -338,73 +442,19 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
                   "- 손끝 없음으로 처리")
             finger_detected = False
 
+    fail, ctx = _ocr_upright(resized_bytes, resized_img, page_w, page_h, fx, fy)
+    if fail is not None:
+        return fail
+    ocr_data, resized_img, page_w, page_h, fx, fy = ctx
+
+    # 손끝이 안 잡혔으면: 사진에 문제가 하나뿐이면 그 문제로 진행, 여러 개면 다시 찍기 (2026-10-21)
     if not finger_detected:
-        return _retake_response(reason="no_finger")
-
-    print("1. Clova OCR 호출...")
-    t_ocr = time.perf_counter()
-    try:
-        clova_response = call_clova(resized_bytes)
-    except ClovaError as e:
-        return {"status": "error", "message": f"OCR 호출 실패: {e}"}
-    ocr_data = to_lines(clova_response)
-    print(f"   줄 {len(ocr_data['lines'])}개, page_conf_min={ocr_data['page_conf_min']} "
-          f"({time.perf_counter() - t_ocr:.2f}초)")
-
-    if not ocr_data["lines"]:
-        return _retake_response(reason="no_text")
-
-    # Clova가 우리가 보낸 사진과 다른 크기(가로/세로 뒤바뀜)로 응답한 경우 - 사진을 내부에서
-    # 돌려 읽은 것이라 좌표계가 우리 사진과 안 맞는다(실측 35.jpg, 100장 중 1장). 이때만
-    # 예전처럼 사진을 90도 돌려 Clova를 1회 다시 부른다.
-    clova_size = (ocr_data["page_w"], ocr_data["page_h"])
-    if None not in clova_size and clova_size != (page_w, page_h):
-        print(f"경고: Clova 응답 크기 {clova_size}가 보낸 사진 {(page_w, page_h)}와 다름 "
-              "- 90도 회전 후 재시도")
-        try:
-            rot_bytes, rot_w, rot_h = rotate_image_bytes(resized_bytes)
-            clova_response = call_clova(rot_bytes)
-        except ClovaError as e:
-            return {"status": "error", "message": f"OCR 재시도 실패: {e}"}
-        retry_data = to_lines(clova_response)
-        if not retry_data["lines"] or (retry_data["page_w"], retry_data["page_h"]) != (rot_w, rot_h):
-            print("   -> 회전 재시도도 좌표계 불일치 - 재촬영 필요")
-            return _retake_response(reason="rotation_misdetected")
-        # Image.rotate(90, expand=True) 방향(반시계) 기준 좌표 변환: 회전 전
-        # 페이지 폭(page_w) 기준으로 새 x = 기존 y, 새 y = (page_w - 1) - 기존 x.
-        fx, fy = fy, page_w - 1 - fx
-        page_w, page_h = rot_w, rot_h
-        resized_img = cv2.imdecode(np.frombuffer(rot_bytes, np.uint8), cv2.IMREAD_COLOR)
-        ocr_data = retry_data
-
-    # 종이를 옆으로/거꾸로 놓고 찍은 사진은 Clova가 글자는 제대로 읽지만 좌표 축이 누워
-    # 있다. 단어 좌표로 글 읽는 방향을 판정해 줄·손끝·이미지를 똑바로 세운다 (Clova 재호출
-    # 없음, app/orientation.py 참고). 이후 단계(문항 특정, 빨간 박스, Gemini)는 전부
-    # 세운 좌표계에서 동작한다.
-    angle, votes = detect_rotation(clova_response)
-    if angle:
-        print(f"   페이지가 {angle}도 누워 있음 (득표 {votes}) - 똑바로 세움")
-        clova_response = rotate_response(clova_response, angle, page_w, page_h)
-        fx, fy = rotate_point(fx, fy, angle, page_w, page_h)
-        resized_img = rotate_image(resized_img, angle)
-        page_w, page_h = upright_size(angle, page_w, page_h)
-
-    # 살짝(1~20도) 기운 사진은 줄 박스가 위아래로 부풀어 옆 줄·옆 문항과 겹친다. OCR 단어
-    # 좌표로 줄 기울기를 재서 사진(cv2.warpAffine)과 단어 꼭짓점·손끝을 같은 행렬로 편 뒤
-    # 줄을 다시 묶는다 (Clova 재호출 없음, app/deskew.py 참고). 415장을 인위적으로 15도
-    # 기울인 실험에서 문항 특정 89.0% -> 96.8%.
-    skew = estimate_skew_ocr(clova_response)
-    if skew is not None and MIN_SKEW_DEG <= abs(skew) <= MAX_SKEW_DEG:
-        print(f"   페이지가 {skew:.1f}도 기울어 있음 - 수평으로 폄")
-        M, nw, nh = deskew_matrix(skew, page_w, page_h)
-        clova_response = warp_response(clova_response, M, nw, nh)
-        fx, fy = warp_point(fx, fy, M)
-        resized_img = warp_image(resized_img, M, nw, nh)
-        page_w, page_h = nw, nh
-
-    # 방향·기울기 보정이 적용됐을 수 있으므로 보정된 단어 좌표로 줄을 다시 묶는다
-    # (보정이 없었으면 처음과 같은 결과).
-    ocr_data = to_lines(clova_response)
+        single = single_question_point(ocr_data["lines"], page_h)
+        if single is None:
+            print("   손끝 없음 + 문제가 여러 개(또는 못 찾음) - 다시 찍기")
+            return _retake_response(reason="no_finger")
+        fx, fy = single[1]
+        print(f"   손끝 없음 - 문제가 {single[0]}번 하나뿐이라 그 문제로 진행")
 
     print("2. 문항 특정 (question_locator)...")
     t_locate = time.perf_counter()
