@@ -36,8 +36,9 @@ def get_sat_min(img):
 def check_image_quality(img):
     """1단계: 이미지 사용성 검증"""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    h, w = img.shape[:2]
-    total_area = h * w
+
+    # 글자 인식 가능 여부 검사는 뺐다 (2026-10-21): 픽셀 절대값 기준이라 실시간 카메라처럼
+    # 해상도가 낮으면 멀쩡한 사진도 막혔고, 글자가 없는 사진은 OCR 단계(no_text)에서 걸러진다.
 
     # 1. 흐림 체크 (리사이즈 후 측정 → 여백 영향 완화)
     blur_score = _blur_score(gray)
@@ -50,21 +51,6 @@ def check_image_quality(img):
         return False, "너무 어두워요. 밝은 곳에서 촬영해주세요", blur_score
     if brightness > 220:
         return False, "너무 밝아요. 빛을 피해 촬영해주세요", blur_score
-
-    # 3. 글자 인식 가능 여부
-    edges = cv2.Canny(gray, 80, 200)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    text_like = 0
-    for c in contours:
-        area = cv2.contourArea(c)
-        if 100 < area < total_area * 0.005:
-            x, y, cw, ch = cv2.boundingRect(c)
-            ratio = cw / max(ch, 1)
-            if 0.5 < ratio < 10:
-               text_like += 1
-
-    if text_like < 20:
-        return False, "글자가 잘 보이지 않아요. 문제지를 정면으로 촬영해주세요", blur_score
 
     return True, "OK", blur_score
 
