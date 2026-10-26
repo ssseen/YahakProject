@@ -963,3 +963,30 @@ OpenCV 방식(가로 커널로 글자 줄을 띠로 만든 뒤 `cv2.HoughLinesP`
 - **hand_one2(손끝 없음+한 문제) 다시 찍기는 의도된 동작으로 확정**: 사진 위쪽에 앞 문제 보기(①)가
   걸쳐 찍혀 `single_question_point`의 "①이 2개 이상이면 여러 문제" 규칙에 걸림. "번호 위쪽 ①은
   무시"로 완화하면 두 단 시험지에서 오판 위험이 있어 사용자 결정으로 엄격하게 유지.
+
+### 14-8. 녹음하는 동안 미리 처리 (sessionId, 2026-10-26)
+
+흐름(음성 인식 ②는 그대로 - "음성 인식 성공" 화면 유지 결정):
+```
+① POST /api/analyze {image, checkOnly:true}
+     -> 통과 시 응답에 sessionId. 서버는 백그라운드로 _prepare(리사이즈~OCR~문항 특정~Pinecone~박스) 시작
+② (사용자 녹음) -> 프론트가 STT 서버 /transcribe 호출 -> "음성 인식 성공" 화면 (변경 없음)
+③ POST /api/analyze {sessionId, userQuestion, userLevel}   <- image 안 보냄
+     -> run_session: 미리 처리 결과 꺼내서(아직이면 기다림) _explain(Gemini)만
+```
+- `pipeline.py`: `_run_pipeline_inner`를 `_prepare`(음성 불필요 앞단계)와 `_explain`(학력별 유사문제
+  + Gemini + 응답 조립)으로 분리. `run_pipeline`은 둘을 이어 불러서 기존 동작 그대로.
+  `start_session`/`run_session`, 세션은 메모리(최대 16개, 10분, 꺼내면 삭제).
+- 세션을 못 찾으면(다른 인스턴스/10분 경과/재시작) `retake`, reason `session_expired`
+  ("사진 정보가 만료됐어요. 사진을 다시 찍어주세요") - 사용자 결정(B안). 단 image도 같이 오면
+  예전처럼 처음부터 처리. sessionId 없는 요청은 예전과 100% 동일(프론트 미배포 상태에서도 안전).
+- `/api/analyze`를 `async def` -> `def`로 변경: 안의 동기 작업(OCR/Gemini, 세션 대기)이 이벤트
+  루프를 막아 동시 요청이 전부 멈추던 문제. 이제 스레드풀에서 처리.
+- 측정(로컬, 녹음 5초 흉내, 4장): ③ 대기 = 국사과 5.8 / 영어 10.3 / 수학 12.4 / 손끝없음 7.6초,
+  미리 처리 4~6초가 녹음 중에 끝남(③에서 기다린 시간 0~1.1초). 예전 ③ 13~15초 대비 OCR+Pinecone+
+  리사이즈만큼 감소, 남은 건 거의 Gemini.
+- **Cloud Run 주의**: 응답 후 CPU가 거의 할당 안 됨(기본 설정) -> 백그라운드 미리 처리가 느려질 수
+  있음(Pinecone 미리 연결이 Cloud Run에서 21.9초, 로컬 5.5초). 배포 후 로그의 "[세션 xxxx] 미리 처리
+  완료 (N초)"와 ③ timings.prepare_wait로 확인, 길면 `--no-cpu-throttling` 검토.
+- 프론트 변경 필요(팀원): photo-processing.js에서 응답 sessionId 저장, voice-processing.js ③ 요청에
+  image 대신 sessionId, status=retake/session_expired면 사진 다시 찍기 안내.

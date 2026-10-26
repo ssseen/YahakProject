@@ -3,8 +3,11 @@
 
 실제 앱과 같은 순서로 서버 API를 부른다 (FastAPI TestClient로 main.app을 같은 프로세스에서
 호출 - 서버를 따로 띄울 필요 없음, 네트워크 시간은 빠짐):
-  ① POST /api/analyze (checkOnly=true)  -> 사진 검사
-  ③ POST /api/analyze (+ checkResult)   -> 해설 (①이 retake면 여기서 끝)
+  ① POST /api/analyze (checkOnly=true)  -> 사진 검사 (+ 서버가 sessionId 발급, 해설 앞단계 미리 처리 시작)
+  ③ POST /api/analyze (sessionId + 질문, 사진 없음) -> 해설 (①이 retake면 여기서 끝)
+     --legacy면 예전 방식(사진 다시 업로드 + checkResult)
+녹음 시간 동안 서버가 미리 처리하는 걸 재현하려고 ① 뒤에 --record-sec초(기본 5) 기다린다
+(녹음 파일이 있으면 STT 호출 시간이 더해짐).
   ② POST <STT 서버>/transcribe          -> 음성 인식 (audio/ 폴더에 녹음 파일이 있을 때만)
 ②는 실제 배포된 STT 서버(Cloud Run)를 부른다 - 앱도 그 서버를 쓰기 때문(네트워크 포함).
 녹음 파일은 사진마다 audio/의 파일을 이름순으로 돌려가며 쓰고, 인식된 문장을 ③의 질문으로
@@ -57,7 +60,8 @@ _COLUMNS = (
     ["category", "file", "repeat", "check_status", "check_client_s"]
     + [f"check_{k}" for k in _CHECK_KEYS]
     + ["audio_file", "stt_s", "stt_text", "stt_error"]
-    + ["status", "reason", "branch", "finger_detected", "ocr_cache_hit", "analyze_client_s"]
+    + ["status", "reason", "branch", "finger_detected", "ocr_cache_hit", "analyze_client_s",
+       "prepare_total", "prepare_wait", "similar"]
     + _ANALYZE_KEYS
     + ["gemini_calls_n", "prompt_tokens", "output_tokens", "thinking_tokens", "diagram_seconds",
        "after_voice_s", "total_wait_s", "error"]
@@ -94,7 +98,8 @@ def _transcribe(stt_url, audio_path):
         return "", round(time.perf_counter() - t0, 3), repr(e)[:200]
 
 
-def run_one(client, path, category, repeat, question, audio_path=None, stt_url=None):
+def run_one(client, path, category, repeat, question, audio_path=None, stt_url=None,
+            record_sec=5.0, legacy=False):
     row = {"category": category, "file": path.name, "repeat": repeat}
     data_uri = _data_uri(path)
 
@@ -110,6 +115,7 @@ def run_one(client, path, category, repeat, question, audio_path=None, stt_url=N
         row["error"] = check.get("message") if check.get("status") == "error" else None
         return row
 
+    time.sleep(record_sec)  # 사용자가 질문을 말하는 시간 (서버는 이 동안 미리 처리)
     stt_s = 0.0
     if audio_path is not None:
         text, stt_s, stt_err = _transcribe(stt_url, audio_path)
@@ -119,8 +125,11 @@ def run_one(client, path, category, repeat, question, audio_path=None, stt_url=N
             question = text  # 앱과 같이 인식된 문장을 질문으로 (실패하면 고정 문장으로 계속)
 
     check_result = {"finger_detected": check["finger_detected"], "x": check.get("x"), "y": check.get("y")}
-    result, analyze_s = _post(client, {"image": data_uri, "userQuestion": question,
-                                       "checkResult": check_result})
+    if legacy or not check.get("sessionId"):
+        payload = {"image": data_uri, "userQuestion": question, "checkResult": check_result}
+    else:
+        payload = {"sessionId": check["sessionId"], "userQuestion": question}
+    result, analyze_s = _post(client, payload)
     t = result.get("timings") or {}
     row.update({
         "status": result.get("status"),
@@ -133,7 +142,7 @@ def run_one(client, path, category, repeat, question, audio_path=None, stt_url=N
         "total_wait_s": round(check_s + stt_s + analyze_s, 3),
         "error": result.get("message") if result.get("status") == "error" else None,
     })
-    for k in _ANALYZE_KEYS:
+    for k in _ANALYZE_KEYS + ["prepare_total", "prepare_wait", "similar"]:
         row[k] = t.get(k)
 
     calls = t.get("gemini_calls") or []
@@ -168,13 +177,18 @@ def print_summary(rows):
             continue
         if _mean(ok, "stt_s") is not None:
             print(f"  ② 음성 인식: {_fmt(_mean(ok, 'stt_s'))}")
+        session = _mean(ok, "prepare_wait") is not None
         total = _mean(ok, "server_total")
-        print(f"  ③ 해설 요청: 사용자 대기 {_fmt(_mean(ok, 'analyze_client_s'))}")
+        if session:
+            # 세션 방식: resize~box는 녹음 중에 미리 처리됨 - ③ 시간 대비 비율은 의미 없음
+            print(f"  (녹음 중 미리 처리 {_fmt(_mean(ok, 'prepare_total'))} - 아래 resize~box)")
+        print(f"  ③ 해설 요청: 사용자 대기 {_fmt(_mean(ok, 'analyze_client_s'))}"
+              + (f" | 미리 처리 끝나길 기다림 {_fmt(_mean(ok, 'prepare_wait'))}" if session else ""))
         for k in stages:
             m = _mean(ok, k)
             if m is None:
                 continue
-            share = f" ({m / total * 100:4.1f}%)" if total and k != "server_total" else ""
+            share = f" ({m / total * 100:4.1f}%)" if total and not session and k != "server_total" else ""
             print(f"     {k:<16}{_fmt(m)}{share}")
         print(f"  Gemini 토큰 평균: 입력 {_fmt(_mean(ok, 'prompt_tokens'), 0)} / "
               f"출력 {_fmt(_mean(ok, 'output_tokens'), 0)} / "
@@ -212,6 +226,8 @@ def main_cli():
     ap.add_argument("--question", default="이 문제 좀 알려줘")
     ap.add_argument("--audio-dir", default=str(HERE / "audio"))
     ap.add_argument("--stt-url", default=_STT_URL)
+    ap.add_argument("--record-sec", type=float, default=5.0, help="① 뒤 녹음 시간 흉내(초)")
+    ap.add_argument("--legacy", action="store_true", help="예전 방식(③에 사진 다시 업로드)")
     ap.add_argument("--out", default=None)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--sleep", type=float, default=0.0, help="사진 사이 대기(초) - API 한도 대비")
@@ -273,7 +289,8 @@ def main_cli():
             print(f"\n######## [{i}/{len(jobs)}] {category}/{path.name} (회차 {rep}) ########")
             try:
                 audio = audios[(i - 1) % len(audios)] if audios else None
-                row = run_one(client, path, category, rep, args.question, audio, args.stt_url)
+                row = run_one(client, path, category, rep, args.question, audio, args.stt_url,
+                              args.record_sec, args.legacy)
             except Exception as e:  # 한 장 실패로 전체가 멈추지 않게
                 row = {"category": category, "file": path.name, "repeat": rep, "error": repr(e)}
             writer.writerow(row)

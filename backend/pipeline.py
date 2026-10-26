@@ -248,6 +248,7 @@ _RETAKE_MESSAGES = {
     "no_text": "글자를 읽지 못했어요.\n다시 찍어주세요",
     "location_failed": "문제 위치를 찾지 못했어요.\n다시 찍어주세요",
     "rotation_misdetected": "사진을 다시 읽지 못했어요.\n다시 찍어주세요",
+    "session_expired": "사진 정보가 만료됐어요.\n사진을 다시 찍어주세요",
 }
 _RETAKE_MESSAGE_DEFAULT = "사진을 인식하지 못했어요.\n다시 찍어주세요"
 
@@ -334,18 +335,7 @@ def run_pipeline(image_path, x, y, stt_text=None, user_question="이 문제 좀 
 
     timings["pipeline_total"] = round(time.perf_counter() - pipeline_start, 3)
     print(f"전체 소요 시간: {timings['pipeline_total']:.2f}초")
-    print(f"   [시간] {timings}")
-    result["timings"] = timings
-
-    # save_path를 안 줘도(main.py는 안 줌) 매 요청 결과를 backend/results/에 자동 저장한다.
-    # 그전엔 API로 들어온 요청은 응답만 하고 사라져서 나중에 다시 볼 방법이 없었다.
-    t_save = time.perf_counter()
-    auto_path = os.path.join(_RESULTS_DIR, f"{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}.json")
-    os.makedirs(_RESULTS_DIR, exist_ok=True)
-    with open(auto_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
-    timings["save_json"] = round(time.perf_counter() - t_save, 3)
-    print(f"결과 저장됨: {auto_path}")
+    _finish_result(result, timings)
 
     if save_path:
         with open(save_path, "w", encoding="utf-8") as f:
@@ -358,6 +348,103 @@ def _lap(timings, key, t0):
     """t0부터 지금까지 걸린 시간을 timings[key]에 더한다 (같은 단계가 여러 번이면 합산)."""
     timings[key] = round(timings.get(key, 0) + time.perf_counter() - t0, 3)
 
+
+def _finish_result(result, timings):
+    """timings를 응답에 붙이고 결과를 backend/results/에 자동 저장한다 (run_pipeline/run_session 공용).
+    save_path를 안 줘도(main.py는 안 줌) 매 요청 결과를 저장한다 - 그전엔 API로 들어온 요청은
+    응답만 하고 사라져서 나중에 다시 볼 방법이 없었다."""
+    print(f"   [시간] {timings}")
+    result["timings"] = timings
+    t_save = time.perf_counter()
+    auto_path = os.path.join(_RESULTS_DIR, f"{time.strftime('%Y%m%d_%H%M%S')}_{os.getpid()}.json")
+    os.makedirs(_RESULTS_DIR, exist_ok=True)
+    with open(auto_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    timings["save_json"] = round(time.perf_counter() - t_save, 3)
+    print(f"결과 저장됨: {auto_path}")
+
+
+# 촬영 직후 미리 처리 세션 (2026-10-26, 교수 미팅 4번 "속도").
+# 사진 검사(checkOnly)를 통과하면 sessionId를 발급하고, 사용자가 음성 질문을 녹음하는 동안
+# _prepare(리사이즈~OCR~문항 특정~Pinecone~빨간 박스)를 백그라운드로 돌려둔다. 해설 요청은
+# 사진 대신 sessionId + 질문만 보내고, 서버는 미리 처리한 결과로 바로 Gemini를 부른다.
+# 서버 메모리라 다른 인스턴스로 가거나 TTL이 지나면 못 찾는다 - 그때는 "사진 다시 찍기"(사용자 결정).
+_SESSIONS = {}
+_SESSIONS_LOCK = threading.Lock()
+_SESSION_MAX = 16             # 세션당 1960px 이미지(~9MB)를 들고 있으므로 작게 유지
+_SESSION_TTL_SEC = 600        # 사진 찍고 음성 질문까지 넉넉히 10분
+_SESSION_WAIT_SEC = 90        # 해설 요청이 미리 처리가 끝나길 기다리는 최대 시간
+
+
+def start_session(image_bytes, x, y):
+    """사진 바이트로 _prepare를 백그라운드 스레드에서 시작하고 sessionId를 돌려준다."""
+    import tempfile
+    import uuid
+
+    session_id = uuid.uuid4().hex
+    entry = {"created": time.time(), "done": threading.Event(), "fail": None, "ctx": None, "timings": {}}
+    with _SESSIONS_LOCK:
+        now = time.time()
+        for sid in [k for k, v in _SESSIONS.items() if now - v["created"] > _SESSION_TTL_SEC]:
+            _SESSIONS.pop(sid, None)
+        while len(_SESSIONS) >= _SESSION_MAX:
+            _SESSIONS.pop(next(iter(_SESSIONS)))
+        _SESSIONS[session_id] = entry
+
+    def _work():
+        fd, path = tempfile.mkstemp(suffix=".img")
+        t0 = time.perf_counter()
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(image_bytes)
+            entry["fail"], entry["ctx"] = _prepare(path, x, y, None, entry["timings"])
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            entry["fail"] = {"status": "error", "message": str(e)}
+        finally:
+            os.remove(path)
+            entry["timings"]["prepare_total"] = round(time.perf_counter() - t0, 3)
+            outcome = "성공" if entry["fail"] is None else \
+                f"실패: {entry['fail'].get('reason') or entry['fail'].get('message')}"
+            print(f"[세션 {session_id[:8]}] 미리 처리 완료 ({entry['timings']['prepare_total']:.2f}초, {outcome})")
+            entry["done"].set()
+
+    threading.Thread(target=_work, name=f"prepare-{session_id[:8]}", daemon=True).start()
+    return session_id
+
+
+def run_session(session_id, user_question="이 문제 좀 알려줘", user_level=None):
+    """
+    미리 처리해둔 세션으로 해설을 만든다. 세션이 없거나 만료됐으면 None(호출부가 다시 찍기 안내).
+    응답 timings: 미리 처리 단계 시간들 + prepare_wait(해설 요청이 미리 처리 끝나길 기다린 시간 -
+    0에 가까우면 음성 녹음 동안 다 끝났다는 뜻) + Gemini 단계.
+    """
+    with _SESSIONS_LOCK:
+        entry = _SESSIONS.pop(session_id, None)
+    if entry is None or time.time() - entry["created"] > _SESSION_TTL_SEC:
+        print(f"[세션 {session_id[:8]}] 없음/만료 - 다시 찍기")
+        return None
+
+    start = time.perf_counter()
+    if not entry["done"].wait(_SESSION_WAIT_SEC):
+        return {"status": "error", "message": "미리 처리가 너무 오래 걸림"}
+    timings = dict(entry["timings"])
+    timings["prepare_wait"] = round(time.perf_counter() - start, 3)
+    print(f"[세션 {session_id[:8]}] 해설 요청 - 미리 처리 대기 {timings['prepare_wait']:.2f}초")
+
+    if entry["fail"] is not None:
+        result = dict(entry["fail"])
+    else:
+        try:
+            result = _explain(entry["ctx"], None, user_question, user_level, timings)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            result = {"status": "error", "message": str(e)}
+    timings["session_total"] = round(time.perf_counter() - start, 3)
+    _finish_result(result, timings)
+    return result
 
 def _ocr_upright(resized_bytes, resized_img, page_w, page_h, fx, fy, timings):
     """
@@ -482,6 +569,20 @@ def check_without_finger(image_path, timings=None):
 def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classification_override, user_level=None,
                         timings=None):
     timings = {} if timings is None else timings
+    fail, ctx = _prepare(image_path, x, y, classification_override, timings)
+    if fail is not None:
+        return fail
+    return _explain(ctx, stt_text, user_question, user_level, timings)
+
+
+def _prepare(image_path, x, y, classification_override, timings):
+    """
+    해설 파이프라인 중 음성 질문이 필요 없는 앞부분 - 리사이즈, 손끝 재검출, OCR, 문항 특정,
+    Pinecone 과목 판정, 빨간 박스 (2026-10-26 분리). 촬영 직후 세션(start_session)에서
+    음성 녹음과 동시에 미리 돌릴 수 있게 Gemini 부분(_explain)과 나눴다.
+
+    반환: (실패 응답, None) 또는 (None, ctx dict)
+    """
     finger_detected = x is not None and y is not None
     fx, fy = None, None
     single = None
@@ -499,11 +600,11 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
         try:
             resized_bytes, page_w, page_h = resize_for_ocr(image_path)
         except Exception as e:
-            return {"status": "error", "message": f"이미지를 읽을 수 없음: {e}"}
+            return {"status": "error", "message": f"이미지를 읽을 수 없음: {e}"}, None
 
         resized_img = cv2.imdecode(np.frombuffer(resized_bytes, np.uint8), cv2.IMREAD_COLOR)
         if resized_img is None:
-            return {"status": "error", "message": "이미지 디코딩 실패"}
+            return {"status": "error", "message": "이미지 디코딩 실패"}, None
         _lap(timings, "resize", t_resize)
         print(f"0. 이미지 리사이즈 (장축 1960px, {page_w}x{page_h}) 완료 "
               f"({timings['resize']:.2f}초)")
@@ -519,10 +620,10 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
                       "- 손끝 없음으로 처리")
                 finger_detected = False
 
-        fail, ctx = _ocr_upright(resized_bytes, resized_img, page_w, page_h, fx, fy, timings)
+        fail, upright = _ocr_upright(resized_bytes, resized_img, page_w, page_h, fx, fy, timings)
         if fail is not None:
-            return fail
-        ocr_data, resized_img, page_w, page_h, fx, fy = ctx
+            return fail, None
+        ocr_data, resized_img, page_w, page_h, fx, fy = upright
 
     # 손끝이 안 잡혔으면: 사진에 문제가 하나뿐이면 그 문제로 진행, 여러 개면 다시 찍기 (2026-10-21)
     if not finger_detected:
@@ -532,7 +633,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
             _lap(timings, "single_question", t_single)
         if single is None:
             print("   손끝 없음 + 문제가 여러 개(또는 못 찾음) - 다시 찍기")
-            return _retake_response(reason="no_finger")
+            return _retake_response(reason="no_finger"), None
         fx, fy = single[1]
         print(f"   손끝 없음 - 문제가 {single[0]}번 하나뿐이라 그 문제로 진행")
 
@@ -543,7 +644,7 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
     except LocateError as e:
         _lap(timings, "locate", t_locate)
         print(f"경고: 문항 특정 실패: {e}")
-        return _retake_response(reason="location_failed")
+        return _retake_response(reason="location_failed"), None
     _lap(timings, "locate", t_locate)
     print(f"   -> {locate_result.question_number}번, "
           f"confidence={locate_result.locate_confidence}, "
@@ -576,11 +677,43 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
           f"guard={guard} ({time.perf_counter() - t_search:.2f}초)")
     # [로그] 필수 필드
     print(f"   [로그] agreement={agreement} vote_count={vote_count} guard={guard}")
+    _lap(timings, "pinecone", t_search)
 
+    t_box = time.perf_counter()
+    box = locate_result.box
+    # 화면에 그리는 박스만, 그림·표(글자 없는 영역)를 추가로 포함하도록 보강한다.
+    # query_text/low_conf_lines 등 텍스트 기반 판단에는 원래 박스(box)를 그대로 쓴다
+    # - 보강은 "눈으로 보기 좋게"가 목적이지 검색/판정용 텍스트 범위를 바꾸는 게 아니다.
+    marked_box = augment_box_with_ink(resized_img, box, locate_result.col_x_range,
+                                       locate_result.band_y_range)
+    marked_img = resized_img.copy()
+    cv2.rectangle(marked_img, (marked_box[0], marked_box[1]), (marked_box[2], marked_box[3]),
+                  (0, 0, 255), 4)
+    _lap(timings, "box", t_box)
+
+    return None, dict(
+        finger_detected=finger_detected, locate_result=locate_result, matches=matches,
+        branch=branch, subject_hint=subject_hint, agreement=agreement, guard=guard,
+        marked_img=marked_img,
+    )
+
+
+def _explain(ctx, stt_text, user_question, user_level, timings):
+    """_prepare 결과 + 음성 질문으로 유사문제 선별(학력별) -> Gemini 해설 -> 최종 응답 조립."""
+    finger_detected = ctx["finger_detected"]
+    locate_result = ctx["locate_result"]
+    matches = ctx["matches"]
+    branch = ctx["branch"]
+    subject_hint = ctx["subject_hint"]
+    agreement = ctx["agreement"]
+    guard = ctx["guard"]
+    marked_img = ctx["marked_img"]
+
+    t_similar = time.perf_counter()
     similar_questions = _format_similar_questions(select_similar(matches, branch, exclude_id=None, user_level=user_level))
     below_threshold = not similar_questions
     category = _category_hint_for_branch(matches[:10], branch)
-    _lap(timings, "pinecone", t_search)
+    _lap(timings, "similar", t_similar)
 
     t_type = time.perf_counter()
     type_info = None
@@ -595,18 +728,6 @@ def _run_pipeline_inner(image_path, x, y, stt_text, user_question, classificatio
             
             
     _lap(timings, "type_classifier", t_type)
-
-    t_box = time.perf_counter()
-    box = locate_result.box
-    # 화면에 그리는 박스만, 그림·표(글자 없는 영역)를 추가로 포함하도록 보강한다.
-    # query_text/low_conf_lines 등 텍스트 기반 판단에는 원래 박스(box)를 그대로 쓴다
-    # - 보강은 "눈으로 보기 좋게"가 목적이지 검색/판정용 텍스트 범위를 바꾸는 게 아니다.
-    marked_box = augment_box_with_ink(resized_img, box, locate_result.col_x_range,
-                                       locate_result.band_y_range)
-    marked_img = resized_img.copy()
-    cv2.rectangle(marked_img, (marked_box[0], marked_box[1]), (marked_box[2], marked_box[3]),
-                  (0, 0, 255), 4)
-    _lap(timings, "box", t_box)
 
     # _split_passage_and_options는 영어 분기 전용 파싱이라 branch가 "영어"일 때만 돌린다
     # (수학/국사과 분기가 이 결과를 쓰지 않는데도 항상 호출되고 있었던 게, 보기 개수/형식이

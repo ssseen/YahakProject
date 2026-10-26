@@ -12,7 +12,9 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from vision_processor import analyze_image
-from pipeline import run_pipeline, check_without_finger, warmup_pinecone
+from pipeline import (
+    run_pipeline, check_without_finger, warmup_pinecone, start_session, run_session, _retake_response,
+)
 from app.stt_client import SttError
 from app.stt_client import preload as preload_stt
 from app.stt_client import transcribe as transcribe_audio
@@ -59,32 +61,51 @@ class CheckResult(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
-    image: str
+    image: str | None = None  # sessionId로 해설 요청할 때는 생략 가능
     userQuestion: str = "이 문제 좀 알려줘"
     checkOnly: bool = False
     userLevel: str | None = None
     checkResult: CheckResult | None = None
+    sessionId: str | None = None  # 촬영 검사 응답의 sessionId - 주면 사진 없이 미리 처리 결과로 해설
+
+
+def _decode_base64_image(base64_image: str) -> bytes:
+    if "base64," in base64_image:
+        base64_image = base64_image.split(",", 1)[1]
+    return base64.b64decode(base64_image)
 
 
 def _save_base64_image(base64_image: str) -> str:
-    if "base64," in base64_image:
-        image_data = base64_image.split(",", 1)[1]
-    else:
-        image_data = base64_image
-    image_bytes = base64.b64decode(image_data)
-
     fd, tmp_path = tempfile.mkstemp(suffix=".png")
     with os.fdopen(fd, "wb") as f:
-        f.write(image_bytes)
+        f.write(_decode_base64_image(base64_image))
     return tmp_path
 
 
+# async def가 아닌 일반 def - 안에서 OCR/Gemini 등 오래 걸리는 동기 작업을 하므로, async def면
+# 한 요청이 처리되는 동안 서버의 다른 요청이 전부 멈췄다. def면 FastAPI가 스레드풀에서 돌린다.
 @app.post("/api/analyze")
-async def analyze(req: AnalyzeRequest):
-    # 1단계: 이미지 품질 검증 + 손가락 좌표 추출 (OpenCV)
+def analyze(req: AnalyzeRequest):
     t_request = time.perf_counter()
     # 단계별 소요 시간(초) - 응답의 "timings"로 내려보낸다 (속도 측정용, 2026-10-26)
     timings = {}
+
+    # 촬영 검사 때 받은 sessionId로 온 해설 요청: 음성 녹음 동안 미리 처리해둔 결과로 Gemini만 부른다
+    if not req.checkOnly and req.sessionId:
+        print(f"해설 요청(세션 {req.sessionId[:8]}, userQuestion={req.userQuestion!r})")
+        user_level = req.userLevel if req.userLevel in _VALID_LEVELS else None
+        result = run_session(req.sessionId, user_question=req.userQuestion, user_level=user_level)
+        if result is not None:
+            result["timings"]["server_total"] = round(time.perf_counter() - t_request, 3)
+            return result
+        if not req.image:
+            return _retake_response(reason="session_expired")
+        print("   세션 없음 - 같이 온 사진으로 처음부터 처리")
+
+    if not req.image:
+        raise HTTPException(status_code=422, detail="image 또는 유효한 sessionId가 필요합니다")
+
+    # 1단계: 이미지 품질 검증 + 손가락 좌표 추출 (OpenCV)
     print(f"1. 이미지 분석 시작... (checkOnly={req.checkOnly}, userQuestion={req.userQuestion!r})")
     if not req.checkOnly and req.checkResult is not None:
         # 같은 사진을 촬영 직후 검사에서 이미 analyze_image로 검사했다 - 그 결과를 프론트가
@@ -121,13 +142,20 @@ async def analyze(req: AnalyzeRequest):
             if fail is not None:
                 fail["timings"] = {**timings, "server_total": round(time.perf_counter() - t_request, 3)}
                 return fail
+        # 통과한 사진은 음성 녹음하는 동안 해설 앞단계(OCR~Pinecone~빨간 박스)를 미리 돌린다
+        session_id = start_session(
+            _decode_base64_image(req.image),
+            vision_result.get("x") if vision_result["finger_detected"] else None,
+            vision_result.get("y") if vision_result["finger_detected"] else None,
+        )
         timings["server_total"] = round(time.perf_counter() - t_request, 3)
-        print(f"   [시간] {timings}")
+        print(f"   [시간] {timings} (세션 {session_id[:8]} 미리 처리 시작)")
         return {
             "status": "checked",
             "finger_detected": vision_result["finger_detected"],
             "x": vision_result.get("x"),
             "y": vision_result.get("y"),
+            "sessionId": session_id,
             "timings": timings,
         }
 
