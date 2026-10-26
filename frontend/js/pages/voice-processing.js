@@ -39,6 +39,7 @@ export function renderVoiceProcessing(container) {
   // 최종 질문 텍스트는 항상 Whisper 결과를 씀 (자막 텍스트는 서버로 안 보냄)
   let recognition = null;
   let recognizedText = '';
+  let retakeMessage = ''; // 해설 요청이 retake(사진 다시 찍기)로 끝났을 때 보여줄 서버 안내 문구
 
   function render() {
     if (step === 'ready') renderReady();
@@ -321,16 +322,26 @@ export function renderVoiceProcessing(container) {
       return;
     }
 
-    try {
-      const res = await fetch(API_BASE + '/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    // sessionId가 있으면 사진을 다시 보내지 않는다 - 서버가 녹음하는 동안 미리 처리해둔 결과로 바로 해설.
+    // 없으면(구버전 서버 등) 예전처럼 사진 + 촬영 검사 결과를 보낸다.
+    const body = photoState.sessionId
+      ? {
+          sessionId: photoState.sessionId,
+          userQuestion: questionText,
+          userLevel: getUserLevelForRequest(),
+        }
+      : {
           image: photoState.dataUri,
           userQuestion: questionText,
           userLevel: getUserLevelForRequest(),
           checkResult: photoState.check || undefined, // 촬영 검사 결과 (없으면 서버가 다시 검사)
-        }),
+        };
+
+    try {
+      const res = await fetch(API_BASE + '/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
         signal,
       });
 
@@ -347,6 +358,14 @@ export function renderVoiceProcessing(container) {
       if (data.status === 'success') {
         setState({ question: data });
         endLoading(() => navigate('/solve'));
+      } else if (data.status === 'retake') {
+        // 사진 쪽 문제(사진 정보 만료, 문제 위치/글자를 못 찾음 등) - 다시 녹음해도 해결 안 되므로
+        // "다시 말씀해주세요" 대신 서버 안내 문구와 사진 다시 찍기 버튼을 보여준다
+        endLoading(() => {
+          retakeMessage = data.message || '사진을 인식하지 못했어요.\n다시 찍어주세요';
+          step = 'error';
+          render();
+        });
       } else {
         endLoading(() => {
           step = 'error';
@@ -376,6 +395,10 @@ export function renderVoiceProcessing(container) {
 
   function renderError() {
     hideHeader();
+    if (retakeMessage) {
+      renderRetake();
+      return;
+    }
     container.innerHTML = `
       <section class="voice-screen state-screen">
         <img src="image/error_icon.png" alt="" aria-hidden="true" class="result-icon shake" />
@@ -387,6 +410,24 @@ export function renderVoiceProcessing(container) {
     container.querySelector('#retry-btn').addEventListener('click', () => {
       step = 'ready';
       render();
+    });
+    container.querySelector('#home-btn').addEventListener('click', () => navigate('/'));
+  }
+
+  // 해설 요청이 retake로 끝났을 때: 사진을 다시 찍어야 하므로 카메라로 돌려보낸다
+  function renderRetake() {
+    container.innerHTML = `
+      <section class="voice-screen state-screen">
+        <img src="image/error_icon.png" alt="" aria-hidden="true" class="result-icon shake" />
+        <p class="pre-line">${retakeMessage}</p>
+        <button class="btn btn-secondary" id="retake-btn" type="button">사진 다시 찍기</button>
+        <button class="link-btn" id="home-btn" type="button">처음으로 돌아가기</button>
+      </section>
+    `;
+    container.querySelector('#retake-btn').addEventListener('click', () => {
+      retakeMessage = '';
+      setState({ photo: null, question: null });
+      navigate('/camera');
     });
     container.querySelector('#home-btn').addEventListener('click', () => navigate('/'));
   }
