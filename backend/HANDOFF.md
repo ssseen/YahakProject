@@ -1006,3 +1006,15 @@ OpenCV 방식(가로 커널로 글자 줄을 띠로 만든 뒤 `cv2.HoughLinesP`
 - **Gemini가 JSON 모드에서도 형식이 깨진 JSON을 보냄**(hand_one4, 쉼표 누락 -> 해설 대신 error).
   -> `gemini_config.generate_json`: 파싱 실패 시 1회 다시 호출(시간·토큰 합산, `json_retries` 기록).
   세 explainer 모두 사용. 테스트 `tests/test_gemini_config.py`.
+
+### 14-10. 배포 후 확인: Cloud Run CPU 제한 + 미리 처리를 opt-in으로 (2026-10-26)
+
+- 배포 로그(콜드 스타트 직후): ① 0.6초 응답 뒤 백그라운드 미리 처리가 **94.9초**(리사이즈 66.8초,
+  Clova 11.1초, Pinecone 미리 연결 27.3초). Cloud Run 기본 설정은 요청 처리 중에만 CPU를 줘서 응답 후
+  스레드가 거의 멈춤. ③ 요청이 들어오자 CPU가 다시 주어져 1초 만에 끝남.
+- 프론트가 아직 sessionId를 안 보내서 ③이 예전 방식으로 처음부터 다시 처리 -> **사진마다 Clova 2번**.
+  -> `/api/analyze`에 `prepare` 플래그 추가(기본 false). checkOnly + `prepare: true`일 때만 세션 발급·
+  미리 처리. 플래그가 없으면 응답 `sessionId: null`, 동작은 14-8 이전과 동일.
+- 데모 때: `--min-instances 1 --no-cpu-throttling`(요청 사이에도 CPU 할당)으로 켜야 미리 처리가 녹음
+  중에 끝남. 끝나면 `--min-instances 0 --cpu-throttling`. 평소(제한 켜짐)에도 ③에서 CPU가 생겨
+  남은 처리를 마치므로 예전보다 느려지지 않음.

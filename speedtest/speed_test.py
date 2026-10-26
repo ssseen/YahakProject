@@ -103,7 +103,7 @@ def run_one(client, path, category, repeat, question, audio_path=None, stt_url=N
     row = {"category": category, "file": path.name, "repeat": repeat}
     data_uri = _data_uri(path)
 
-    check, check_s = _post(client, {"image": data_uri, "checkOnly": True})
+    check, check_s = _post(client, {"image": data_uri, "checkOnly": True, "prepare": not legacy})
     row["check_status"] = check.get("status")
     row["check_client_s"] = check_s
     for k in _CHECK_KEYS:

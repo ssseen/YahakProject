@@ -67,6 +67,10 @@ class AnalyzeRequest(BaseModel):
     userLevel: str | None = None
     checkResult: CheckResult | None = None
     sessionId: str | None = None  # 촬영 검사 응답의 sessionId - 주면 사진 없이 미리 처리 결과로 해설
+    # checkOnly와 같이 true로 보내면 통과 시 sessionId를 발급하고 해설 앞단계를 미리 처리한다.
+    # 기본 false - sessionId를 안 쓰는 프론트에서 미리 처리를 돌리면 OCR(Clova)만 두 번 하게 되므로
+    # (2026-10-26 배포 로그로 확인) 프론트가 sessionId를 쓸 준비가 됐다고 알릴 때만 한다.
+    prepare: bool = False
 
 
 def _decode_base64_image(base64_image: str) -> bytes:
@@ -142,14 +146,16 @@ def analyze(req: AnalyzeRequest):
             if fail is not None:
                 fail["timings"] = {**timings, "server_total": round(time.perf_counter() - t_request, 3)}
                 return fail
-        # 통과한 사진은 음성 녹음하는 동안 해설 앞단계(OCR~Pinecone~빨간 박스)를 미리 돌린다
-        session_id = start_session(
-            _decode_base64_image(req.image),
-            vision_result.get("x") if vision_result["finger_detected"] else None,
-            vision_result.get("y") if vision_result["finger_detected"] else None,
-        )
+        # prepare=true면 음성 녹음하는 동안 해설 앞단계(OCR~Pinecone~빨간 박스)를 미리 돌린다
+        session_id = None
+        if req.prepare:
+            session_id = start_session(
+                _decode_base64_image(req.image),
+                vision_result.get("x") if vision_result["finger_detected"] else None,
+                vision_result.get("y") if vision_result["finger_detected"] else None,
+            )
         timings["server_total"] = round(time.perf_counter() - t_request, 3)
-        print(f"   [시간] {timings} (세션 {session_id[:8]} 미리 처리 시작)")
+        print(f"   [시간] {timings}" + (f" (세션 {session_id[:8]} 미리 처리 시작)" if session_id else ""))
         return {
             "status": "checked",
             "finger_detected": vision_result["finger_detected"],
