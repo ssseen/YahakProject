@@ -14,7 +14,7 @@ const state = {
   solveResult: null,
   settings: {
     fontSize: localStorage.getItem('fontSize') || 'medium',
-    speechRate: localStorage.getItem('speechRate') || 'normal',
+    speechRate: localStorage.getItem('speechRate') || 'slow', // 어르신 기본값: 천천히
     userLevel: localStorage.getItem('userLevel') || '',
   },
 };
@@ -46,7 +46,8 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-const FONT_SCALE = { small: 0.9, medium: 1, large: 1.2 };
+// 기본(보통)부터 크게: 기본 글자 20px -> 23px, 크게 26px
+const FONT_SCALE = { small: 1, medium: 1.15, large: 1.3 };
 
 export function applyFontSize(size) {
   document.documentElement.style.setProperty('--font-size-scale', FONT_SCALE[size] ?? 1);

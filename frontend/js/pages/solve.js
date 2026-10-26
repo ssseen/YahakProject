@@ -1,6 +1,7 @@
 import { navigate } from '../router.js';
 import { getState, resetQuestionFlow, subscribe } from '../state.js';
 import { openWordPopup } from '../components/word-popup.js';
+import { makeUtterance } from '../tts.js';
 
 function assembleTokens(tokens) {
   if (!tokens || tokens.length === 0) return '';
@@ -71,13 +72,6 @@ function cleanTextForSpeech(text) {
     .replace(/㉡/g, '니은')
     .replace(/㉢/g, '디귿')
     .replace(/㉣/g, '리을');
-}
-
-function getSpeechRateValue() {
-  const rateSetting = getState().settings?.speechRate || 'normal';
-  if (rateSetting === 'slow') return 0.75;
-  if (rateSetting === 'fast') return 1.2;
-  return 0.95;
 }
 
 export function renderSolve(container) {
@@ -199,9 +193,7 @@ export function renderSolve(container) {
     highlightSentence(currentSentenceIdx);
 
     const textToRead = cleanTextForSpeech(spans[currentSentenceIdx].textContent);
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    utterance.lang = 'ko-KR';
-    utterance.rate = getSpeechRateValue();
+    const utterance = makeUtterance(textToRead); // 한국어 목소리 중 덜 기계적인 것 + 설정 속도
     activeUtterance = utterance;
 
     utterance.onend = () => {

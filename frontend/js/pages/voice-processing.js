@@ -2,6 +2,9 @@ import { navigate } from '../router.js';
 import { getState, setState, getUserLevelForRequest } from '../state.js';
 import { renderHeader } from '../components/header.js';
 import { startLoading, endLoading } from '../loading-guard.js';
+import { speak, stopSpeaking } from '../tts.js';
+
+const GUIDE_VOICE = '마이크 버튼을 누르고 질문해 주세요. 말씀이 끝나면 버튼을 한 번 더 눌러 주세요.';
 
 const DEBUG_STEPS = ['ready', 'recording', 'recognizing', 'understanding', 'error'];
 const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app';
@@ -26,6 +29,8 @@ function getDebugStep() {
 
 export function renderVoiceProcessing(container) {
   let step = getDebugStep() || 'ready';
+  // 브라우저 뒤로가기 등으로 화면을 떠나면 안내 음성 중지
+  window.addEventListener('hashchange', stopSpeaking, { once: true });
 
   let stream = null;
   let mediaRecorder = null;
@@ -92,6 +97,7 @@ export function renderVoiceProcessing(container) {
 
   function stopAudioStream() {
     leftPage = true;
+    stopSpeaking();
     stopLiveCaption();
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
@@ -125,7 +131,10 @@ export function renderVoiceProcessing(container) {
       </section>
     `;
     container.querySelector('#mic-btn').addEventListener('click', startRecording);
+    // 안내 음성 (녹음 시작하면 바로 끊음 - 안내 음성이 녹음에 섞이지 않게)
+    speak(GUIDE_VOICE);
     container.querySelector('#skip-voice-btn').addEventListener('click', async () => {
+      stopSpeaking();
       setState({ voiceQuestionText: null });
       // 이미 사진 단계에서 해설이 준비되어 있으면 바로 이동, 아니면 기본 질문으로 분석 호출
       if (getState().question) {
@@ -137,6 +146,7 @@ export function renderVoiceProcessing(container) {
   }
 
   async function startRecording() {
+    stopSpeaking();
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
@@ -203,7 +213,7 @@ export function renderVoiceProcessing(container) {
         <div class="wave-bars" aria-hidden="true">
           ${barsHtml}
         </div>
-        <p id="live-caption" style="min-height: 48px; margin: 12px 24px; padding: 10px 14px; background: #F5F5F5; border-radius: 10px; font-size: 0.75rem; color: var(--color-text-muted); text-align: center; word-break: keep-all;">
+        <p id="live-caption" style="min-height: 48px; margin: 12px 24px; padding: 10px 14px; background: #F5F5F5; border-radius: 10px; font-size: 0.85rem; color: var(--color-text-muted); text-align: center; word-break: keep-all;">
           말씀하시는 내용이 여기에 실시간으로 표시됩니다...
         </p>
         <button class="stop-btn" id="stop-btn" type="button" aria-label="녹음 종료">
@@ -387,7 +397,7 @@ export function renderVoiceProcessing(container) {
     container.innerHTML = `
       <section class="voice-screen state-screen">
         <p>질문을 이해하고 있어요.<br />잠시만 기다려주세요<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></p>
-        ${recognizedText ? '<p style="font-size: 0.75rem; color: var(--color-text-muted); margin: -20px 24px 0; text-align: center;">질문: "' + recognizedText + '"</p>' : ''}
+        ${recognizedText ? '<p style="font-size: 0.85rem; color: var(--color-text-muted); margin: -20px 24px 0; text-align: center;">질문: "' + recognizedText + '"</p>' : ''}
         <div class="spinner" aria-hidden="true"></div>
       </section>
     `;

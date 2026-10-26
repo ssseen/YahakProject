@@ -1,4 +1,5 @@
 import { getState, applyFontSize, applySpeechRate, applyUserLevel } from '../state.js';
+import { speak } from '../tts.js';
 
 const FONT_OPTIONS = [
   { value: 'small', label: '작게' },
@@ -6,7 +7,7 @@ const FONT_OPTIONS = [
   { value: 'large', label: '크게' },
 ];
 const RATE_OPTIONS = [
-  { value: 'slow', label: '느리게' },
+  { value: 'slow', label: '천천히' },
   { value: 'normal', label: '보통' },
   { value: 'fast', label: '빠르게' },
 ];
@@ -85,14 +86,7 @@ export function openSettingsModal() {
   });
 
   root.querySelector('#test-speed-btn').addEventListener('click', () => {
-    if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const rateKey = getState().settings.speechRate;
-    const rateVal = rateKey === 'slow' ? 0.75 : rateKey === 'fast' ? 1.2 : 0.95;
-    const utter = new SpeechSynthesisUtterance('안녕하세요, 선택하신 속도로 문제 해설을 읽어드립니다.');
-    utter.lang = 'ko-KR';
-    utter.rate = rateVal;
-    window.speechSynthesis.speak(utter);
+    speak('안녕하세요, 선택하신 속도로 문제 해설을 읽어드립니다.');
   });
 
   const close = () => {
