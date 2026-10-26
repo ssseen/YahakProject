@@ -14,7 +14,7 @@ import uuid
 
 import cv2
 
-from gemini_config import get_model, parse_json_response, timed_generate, MARKED_IMAGE_HINT, voice_question_section
+from gemini_config import get_model, generate_json, MARKED_IMAGE_HINT, voice_question_section
 
 _DIAGRAM_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "diagrams")
 os.makedirs(_DIAGRAM_DIR, exist_ok=True)
@@ -108,8 +108,7 @@ def explain_math(ocr_result, classification, marked_image=None, user_question="ì
             parts = [{"mime_type": "image/jpeg", "data": buf.tobytes()}, MARKED_IMAGE_HINT, prompt]
 
     model = get_model(json_mode=True)
-    response, gemini_info = timed_generate(model, parts)
-    parsed = parse_json_response(response.text)
+    parsed, gemini_info = generate_json(model, parts)
 
     if parsed.get("subject_mismatch"):
         return {"subject_mismatch": parsed["subject_mismatch"], "gemini": gemini_info}

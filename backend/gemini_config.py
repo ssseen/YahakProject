@@ -88,6 +88,32 @@ def timed_generate(model, parts):
     return response, info
 
 
+def generate_json(model, parts, retries=1):
+    """
+    Gemini를 부르고 JSON으로 파싱해 (parsed, 측정값)을 반환한다. JSON 모드여도 Gemini가 가끔
+    형식이 깨진 JSON(쉼표 누락 등)을 보내는데(2026-10-26 속도측정 hand_one4 실측), 그대로 두면
+    사용자가 녹음까지 마친 뒤 에러 화면을 본다 - 파싱에 실패하면 retries번 다시 부른다.
+    측정값의 seconds/토큰은 모든 시도를 합친 값, json_retries는 다시 부른 횟수.
+    """
+    total = None
+    for attempt in range(retries + 1):
+        response, info = timed_generate(model, parts)
+        if total is None:
+            total = info
+        else:
+            for k in ("seconds", "prompt_tokens", "output_tokens", "thinking_tokens", "total_tokens"):
+                if isinstance(total.get(k), (int, float)) and isinstance(info.get(k), (int, float)):
+                    total[k] = round(total[k] + info[k], 3)
+        total["json_retries"] = attempt
+        try:
+            return parse_json_response(response.text), total
+        except json.JSONDecodeError as e:
+            print(f"경고: Gemini 응답 JSON 파싱 실패({e}) - "
+                  f"{'다시 호출' if attempt < retries else '재시도 소진'}. 응답 앞부분: {response.text[:200]!r}")
+            if attempt == retries:
+                raise
+
+
 def parse_json_response(text):
     """
     Gemini 응답 텍스트에서 JSON을 파싱한다. json_mode=True로 호출하면 보통 순수 JSON이

@@ -990,3 +990,19 @@ OpenCV 방식(가로 커널로 글자 줄을 띠로 만든 뒤 `cv2.HoughLinesP`
   완료 (N초)"와 ③ timings.prepare_wait로 확인, 길면 `--no-cpu-throttling` 검토.
 - 프론트 변경 필요(팀원): photo-processing.js에서 응답 sessionId 저장, voice-processing.js ③ 요청에
   image 대신 sessionId, status=retake/session_expired면 사진 다시 찍기 안내.
+
+### 14-9. 흐름 변경 전후 측정 + Gemini JSON 재시도 (2026-10-26)
+
+- 측정(로컬, 40장, 녹음 5초 흉내 + 실제 STT 서버에 `speedtest/audio/음성2.m4a` "이 문제 알려줘"):
+  말이 끝난 뒤 대기(② STT + 화면 0.8초 + ③) 평균 **19.7 -> 14.7초**(34장 비교, -4.9초).
+  국사과 18.2->12.7 / 영어 19.9->16.2 / 수학 19.6->14.9 / 손끝없음·한문제 22.9->15.8.
+  미리 처리(3.8~5.6초)는 전부 녹음 중에 끝남(③ prepare_wait 0초). STT 평균 4.55초.
+  정리 표: `speedtest/speedtest_20261026_정리_3_5.md`(3번=전, 5번=후, 사진별 + 전후 비교).
+  3번의 ②는 흐름 변경과 무관해서 5번 측정 평균을 같이 넣음.
+- STT 정확도: 같은 "이 문제 알려줘"인데 음성1.m4a는 "이의 문제에 안경을 줘"로 오인식, 음성2.m4a는
+  정확. 오인식 질문에도 Gemini는 질문을 지어내지 않고 해설만 함(14-1 규칙 동작 확인).
+- 종이를 잡은 엄지가 살짝만 찍혀도 1960px 검출에서 손끝으로 잡혀 문항 특정 실패 -> 녹음 후에
+  retake(hand_one4·5). 사용자가 사진을 잘라 재측정. 코드상 미해결(엄지/검지 구분 없음).
+- **Gemini가 JSON 모드에서도 형식이 깨진 JSON을 보냄**(hand_one4, 쉼표 누락 -> 해설 대신 error).
+  -> `gemini_config.generate_json`: 파싱 실패 시 1회 다시 호출(시간·토큰 합산, `json_retries` 기록).
+  세 explainer 모두 사용. 테스트 `tests/test_gemini_config.py`.

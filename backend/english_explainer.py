@@ -49,7 +49,7 @@ import re
 import cv2
 
 from gemini_config import (
-    get_model, parse_json_response, timed_generate, MARKED_IMAGE_HINT, VOICE_QUESTION_RULES, voice_question_section,
+    get_model, generate_json, MARKED_IMAGE_HINT, VOICE_QUESTION_RULES, voice_question_section,
 )
 
 _WORD_RE = re.compile(r"\w+(?:['’]\w+)?")
@@ -221,8 +221,7 @@ def explain_english(ocr_result, classification, marked_image=None, user_question
             parts = [{"mime_type": "image/jpeg", "data": buf.tobytes()}, MARKED_IMAGE_HINT, prompt]
 
     model = get_model(json_mode=True)
-    response, gemini_info = timed_generate(model, parts)
-    parsed = parse_json_response(response.text)
+    parsed, gemini_info = generate_json(model, parts)
 
     if parsed.get("subject_mismatch"):
         return {"subject_mismatch": parsed["subject_mismatch"], "gemini": gemini_info}
