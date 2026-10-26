@@ -31,6 +31,23 @@ if ('speechSynthesis' in window) {
   });
 }
 
+// 아이폰(사파리/iOS 크롬)은 "사용자가 화면을 누른 순간"에 한 번 소리를 내야 그 뒤 자동 재생을 허용함.
+// 녹음 화면 안내 음성은 사진 분석이 끝난 뒤(터치와 상관없는 시점)에 나오므로,
+// 페이지를 연 뒤 첫 터치 때 무음 발화를 한 번 해서 미리 풀어둔다.
+function unlockOnFirstTouch() {
+  if (!('speechSynthesis' in window)) return;
+  const unlock = () => {
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    window.speechSynthesis.speak(u);
+    document.removeEventListener('click', unlock, true);
+    document.removeEventListener('touchend', unlock, true);
+  };
+  document.addEventListener('click', unlock, true);
+  document.addEventListener('touchend', unlock, true);
+}
+unlockOnFirstTouch();
+
 // 한국어 발화 객체 생성 (목소리/속도 적용). 재생은 호출한 쪽에서 speechSynthesis.speak()
 export function makeUtterance(text) {
   const u = new SpeechSynthesisUtterance(text);
@@ -45,6 +62,7 @@ export function makeUtterance(text) {
 export function speak(text) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
+  window.speechSynthesis.resume(); // 아이폰에서 가끔 '일시정지' 상태로 멈춰 있는 경우 대비
   window.speechSynthesis.speak(makeUtterance(text));
 }
 

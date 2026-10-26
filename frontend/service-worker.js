@@ -1,6 +1,6 @@
 // 기본 오프라인 캐싱 - 앱 껍데기(HTML/CSS/JS/이미지)만 캐싱하고,
 // 실제 API 호출(/api/analyze, /transcribe)은 캐싱하지 않는다 (매번 새 데이터가 필요하니까).
-const CACHE_NAME = 'geomgosim-v2';
+const CACHE_NAME = 'geomgosim-v3';
 
 // 앱 실행에 꼭 필요한 최소 파일들. 새 페이지/이미지를 추가하면 여기도 같이 추가해야 함.
 const CORE_ASSETS = [
@@ -16,6 +16,7 @@ const CORE_ASSETS = [
   './js/app.js',
   './js/router.js',
   './js/state.js',
+  './js/tts.js',
   './js/pages/home.js',
   './js/pages/menu.js',
   './js/pages/photo-processing.js',
@@ -51,18 +52,21 @@ self.addEventListener('fetch', (event) => {
     return; // 이 요청은 service worker가 관여하지 않음 (기본 브라우저 동작)
   }
 
-  // 그 외(앱 껍데기, 이미지 등)는 캐시 우선 - 있으면 캐시에서, 없으면 네트워크에서 받아오고 캐시에 저장
+  if (event.request.method !== 'GET') return;
+
+  // 그 외(앱 껍데기, 이미지 등)는 네트워크 우선 - 항상 최신 파일을 받고, 오프라인일 때만 캐시 사용.
+  // (예전 '캐시 우선'은 push해도 폰에 옛날 JS가 계속 남아서 새 기능이 안 보이거나
+  //  새 파일/옛 파일이 섞여 동작이 꼬일 수 있었음)
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
+    fetch(event.request)
+      .then((response) => {
         // 성공 응답만 캐시에 저장 (에러 응답을 캐싱하면 안 됨)
         if (response.ok) {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
         }
         return response;
-      });
-    })
+      })
+      .catch(() => caches.match(event.request))
   );
 });

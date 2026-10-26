@@ -1,6 +1,7 @@
 import { initRouter } from './router.js';
 import { applyFontSize, getState } from './state.js';
 import { openLevelPromptModal } from './components/settings-modal.js';
+import './tts.js'; // 첫 터치 때 음성 재생 잠금 해제 (아이폰)
 
 // 저장된(또는 기본) 설정값을 부팅 시 CSS에 반영
 applyFontSize(getState().settings.fontSize);
