@@ -61,8 +61,18 @@ def _match_level(m):
     return getattr(fields, "exam_type", None)
 
 
+# latin_ratio에서 빼는 것 - 영어 문장이 아니라 수학 기호로 쓰이는 라틴 문자 (2026-10-26).
+# 도형 문제("□ABCD ∽ □EFGH 일 때, GH의 길이는? ① 3cm ...")가 꼭짓점 이름·단위 때문에
+# 라틴 비율 0.76이 나와 영어로 넘어갔다(속도측정 375/377.jpg). 두 글자 이상 대문자 묶음
+# (ABCD, GH)과 길이·무게 단위만 뺀다 - 한 글자 대문자(I, 대화문 A:/B:)는 영어에 흔해서 남긴다.
+# Pinecone 전체 3,740문항 비교: 영어 발동 560 -> 560(놓침 0), 수학 오발동 1 -> 0.
+_LATIN_WORD = re.compile(r"[A-Za-z]+")
+_UNIT_WORDS = {"cm", "mm", "km", "kg", "mg", "mL", "ml"}
+
+
 def latin_ratio(t: str) -> float:
-    latin = sum(1 for c in t if c.isascii() and c.isalpha())
+    latin = sum(len(w) for w in _LATIN_WORD.findall(t)
+                if not (len(w) >= 2 and w.isupper()) and w not in _UNIT_WORDS)
     hangul = sum(1 for c in t if '가' <= c <= '힣')
     total = latin + hangul
     return latin / total if total else 0.0

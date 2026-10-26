@@ -44,6 +44,16 @@ def test_latin_ratio_guard_overrides_to_english():
     assert result.guard == "latin_override"
 
 
+def test_latin_guard_ignores_geometry_labels_and_units():
+    # 도형 문제의 꼭짓점 이름(ABCD, GH)·단위(cm)는 영어가 아니다 - 이웃이 전부 수학이면
+    # 라틴 가드가 영어로 덮어쓰면 안 된다 (2026-10-26 속도측정 375/377.jpg에서 발견).
+    query_text = "그림에서 □ABCD∽□EFGH일 때, GH의 길이는? ① 1cm ② 2cm ③ 3cm ④ 4cm"
+    matches = _matches("수학", 0.5, 5)
+    result = decide_branch(matches, query_text)
+    assert result.branch == "수학"
+    assert result.guard is None
+
+
 def test_short_text_with_math_symbols_falls_back_to_math():
     # 20자 미만 + 수식 기호(=, /, ^) 4개 이상, 라틴 문자는 전혀 없음(가드1 회피).
     query_text = "3/4=0.75이고 2^3=8이다"

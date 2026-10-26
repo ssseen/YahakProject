@@ -753,6 +753,9 @@ def debug_visualize_blocks(img, x=None, y=None, padding=120, ink_threshold=3, mi
         plt.show()
 
 
+_FINGER_LONG_SIDE = 1960  # app/clova_client.resize_for_ocr의 장축과 같게 유지
+
+
 def analyze_image(base64_string):
     try:
         if 'base64,' in base64_string:
@@ -778,14 +781,22 @@ def analyze_image(base64_string):
             }
 
         # 2단계: 좌표 추출 (없어도 success)
-        tip, _ = find_finger_tip(img)
+        # 손끝 검출은 파이프라인과 같은 장축 1960px로 줄여서 한다 (2026-10-26). find_finger_tip의
+        # 모폴로지 커널(15/45px 등)이 픽셀 절대값이라 1960px 기준으로 맞춰져 있는데, 원본(4032px)
+        # 그대로 넣으면 손가락 덩어리가 끊겨 잡티로 버려졌다 - 415장 중 10장, 속도측정 사진 22/23.jpg
+        # 가 원본에서만 "손가락 없음". 1960px에서 잃는 사진은 0장, 검출 시간도 0.39 -> 0.09초.
+        # 흔들림/밝기 검사(위)는 원본 기준 임계값이라 그대로 원본에서 한다.
+        scale = _FINGER_LONG_SIDE / max(img.shape[:2])
+        small = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA) if scale < 1 else img
+        tip, _ = find_finger_tip(small)
+        s = min(scale, 1.0)
 
         return {
             "status": "success",
             "method": "OpenCV",
             "finger_detected": tip is not None,
-            "x": tip["x"] if tip else None,
-            "y": tip["y"] if tip else None,
+            "x": round(tip["x"] / s) if tip else None,  # 응답 좌표는 원본 기준 유지
+            "y": round(tip["y"] / s) if tip else None,
             "corner": tip["corner"] if tip else None,
             "blur_score": blur_score,
             "brightness": brightness

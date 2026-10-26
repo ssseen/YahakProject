@@ -9,11 +9,12 @@
 matplotlib 생성 방식으로 통일함. Pillow/overlay 관련 코드는 이 통일 과정에서 제거됨.)
 """
 import os
+import time
 import uuid
 
 import cv2
 
-from gemini_config import get_model, parse_json_response
+from gemini_config import get_model, parse_json_response, timed_generate, MARKED_IMAGE_HINT, voice_question_section
 
 _DIAGRAM_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "diagrams")
 os.makedirs(_DIAGRAM_DIR, exist_ok=True)
@@ -31,7 +32,7 @@ _BASE_PROMPT_TEMPLATE = """
 - 아래 JSON 형식으로만 답하세요. 다른 설명, 마크다운 코드블록 없이 순수 JSON만 출력하세요.
 
 {{
-  "problem_text": "빨간 박스 안, 실제 풀어야 할 문제의 지문/발문/보기를 이미지에 보이는 그대로 옮겨 적으세요. 제곱, 첨자 등도 놓치지 말고 옮기되, LaTeX 기호($, ^)는 쓰지 말고 '(x-1)의 제곱'처럼 우리말로 풀어 쓰세요.",
+  "problem_text": "풀이한 문제의 지문/발문/보기를 이미지에 보이는 그대로 옮겨 적으세요. 제곱, 첨자 등도 놓치지 말고 옮기되, LaTeX 기호($, ^)는 쓰지 말고 '(x-1)의 제곱'처럼 우리말로 풀어 쓰세요.",
   "steps": [
     {{"step_number": 1, "text": "1단계 설명 (정답 언급 금지)"}},
     {{"step_number": 2, "text": "2단계 설명 (정답 언급 금지)"}},
@@ -72,41 +73,46 @@ diagram_spec 형식 (수학적 좌표 기준입니다 - 이미지 픽셀 좌표�
 만약 이 문제가 [문제 유형]에 지정된 과목이 명백히 아니라면:
 {{"subject_mismatch": "이 문제의 올바른 과목명"}}
 
+[음성 질문 처리 규칙 - 가장 중요]
+- 맨 아래 [음성 질문]이 학생이 실제로 궁금해하는 것입니다. 풀이보다 이 질문에 답하는 것이 우선입니다.
+- "이 문제 알려줘", "풀어줘"처럼 풀이 전체를 원하는 일반적인 요청이면 질문을 되짚지 말고 바로 풀이하세요.
+- 특정 용어·기호의 뜻, 특정 단계, 왜 그렇게 되는지 같은 구체적인 질문이면 1단계에서 그 질문에
+  먼저 충분히 답하고(인식된 문장을 그대로 인용하지 말고 자연스럽게 풀어서), 이어지는 단계에서
+  풀이를 하세요.
+- 음성 인식 결과가 깨져서 무슨 뜻인지 알 수 없거나, 이 문제·공부와 전혀 상관없는 말이면 질문을
+  되짚거나 지어내지 말고 풀이만 쓰세요.
+- 어떤 질문이든 answer 필드는 항상 채우세요.
+
 [문제 유형]
 과목: {subject}
 """
 
-_MARKED_IMAGE_HINT = (
-    "첨부한 이미지는 문제지 페이지 전체이며, 지금 풀어야 할 문제는 빨간 박스로 표시돼 있습니다. "
-    "빨간 박스 안의 문제만 푸세요."
-)
-
 
 def explain_math(ocr_result, classification, marked_image=None, user_question="이 문제 좀 알려줘",
-                  *, range_header=None, low_conf_lines=None,
-                  subject_hint=None, category=None, transcript=None, reference=None):
+                  *, subject_hint=None, category=None, transcript=None, reference=None):
     """
+    transcript: 학생이 음성으로 한 질문 텍스트. 없으면 user_question을 쓴다 - 어느 쪽이든
+      프롬프트에는 한 번만 들어간다.
     반환: {"steps": [...], "answer": str, "diagram_path": str|None,
            "explanation_text": str, "question_number": int|None, "subject_mismatch": str|None}
     """
     prompt = _BASE_PROMPT_TEMPLATE.format(
         subject=classification.get("과목", ""),
     )
-    if user_question:
-        prompt += f'\n[질문]\n"{user_question}"\n'
+    prompt += voice_question_section(transcript or user_question)
 
     parts = [prompt]
     if marked_image is not None:
         ok, buf = cv2.imencode(".jpg", marked_image)
         if ok:
-            parts = [{"mime_type": "image/jpeg", "data": buf.tobytes()}, _MARKED_IMAGE_HINT, prompt]
+            parts = [{"mime_type": "image/jpeg", "data": buf.tobytes()}, MARKED_IMAGE_HINT, prompt]
 
     model = get_model(json_mode=True)
-    response = model.generate_content(parts)
+    response, gemini_info = timed_generate(model, parts)
     parsed = parse_json_response(response.text)
 
     if parsed.get("subject_mismatch"):
-        return {"subject_mismatch": parsed["subject_mismatch"]}
+        return {"subject_mismatch": parsed["subject_mismatch"], "gemini": gemini_info}
 
     steps = parsed.get("steps", [])
     # explanation_text: 다른 explainer와 동일하게 화면+음성 통합 텍스트 하나로 합침
@@ -115,7 +121,9 @@ def explain_math(ocr_result, classification, marked_image=None, user_question="�
     diagram_path = None
     if parsed.get("needs_diagram"):
         spec = parsed.get("diagram_spec", {})
+        t_diagram = time.perf_counter()
         diagram_path = generate_diagram(spec)
+        gemini_info["diagram_seconds"] = round(time.perf_counter() - t_diagram, 3)
 
     return {
         "problem_text": parsed.get("problem_text", ""),
@@ -125,6 +133,7 @@ def explain_math(ocr_result, classification, marked_image=None, user_question="�
         "diagram_path": diagram_path,
         "question_number": parsed.get("question_number"),
         "subject_mismatch": None,
+        "gemini": gemini_info,
     }
 
 

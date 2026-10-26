@@ -168,7 +168,8 @@ export function renderPhotoProcessing(container) {
       dataUri = await blobToDataUri(blob);
       // 나중에 음성 페이지(voice-processing.js)에서 이미지와 음성을 동시에 보낼 수 있도록 dataUri 저장!
       const currentPhoto = getState().photo || {};
-      setState({ photo: { ...currentPhoto, blob, dataUri } });
+      // check는 이전 사진의 검사 결과이므로 새 사진에선 비운다
+      setState({ photo: { ...currentPhoto, blob, dataUri, check: null } });
     } catch (err) {
       console.error('이미지 변환 실패:', err);
       return showError('사진을 처리하지 못했어요.\n다시 찍어주세요');
@@ -205,8 +206,13 @@ export function renderPhotoProcessing(container) {
     switch (data.status) {
       case 'checked':
         // 화질 검증 통과 -> 아직 제미나이는 안 돌렸으므로 question은 비워두고 음성 페이지로 이동
+        // 검사 결과(손끝 위치)는 저장해뒀다가 해설 요청 때 같이 보낸다 - 서버가 같은 검사를 다시 안 하도록
         return () => {
-          setState({ question: null });
+          const photo = getState().photo || {};
+          setState({
+            question: null,
+            photo: { ...photo, check: { finger_detected: data.finger_detected, x: data.x, y: data.y } },
+          });
           step = 'success';
           render();
           setTimeout(() => navigate('/voice'), 700);

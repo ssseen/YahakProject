@@ -2,6 +2,7 @@ import base64
 import os
 import tempfile
 import threading
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -11,7 +12,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from vision_processor import analyze_image
-from pipeline import run_pipeline, check_without_finger
+from pipeline import run_pipeline, check_without_finger, warmup_pinecone
 from app.stt_client import SttError
 from app.stt_client import preload as preload_stt
 from app.stt_client import transcribe as transcribe_audio
@@ -24,6 +25,8 @@ async def lifespan(app: FastAPI):
     # STT 모델 로딩(CPU 약 30초)을 첫 /transcribe 요청 대신 서버 기동 시점에 백그라운드로
     # 끝내둔다. 스레드라서 서버는 바로 요청을 받고, /api/analyze는 영향 없음.
     threading.Thread(target=preload_stt, name="stt-preload", daemon=True).start()
+    # Pinecone 첫 검색의 연결 준비(약 3초)도 기동 시점에 끝내둔다.
+    threading.Thread(target=warmup_pinecone, name="pinecone-warmup", daemon=True).start()
     yield
 
 
@@ -48,11 +51,19 @@ app.add_middleware(
 
 _VALID_LEVELS = { "초졸", "중졸", "고졸" }
 
+class CheckResult(BaseModel):
+    """촬영 직후 검사(checkOnly) 응답의 finger_detected/x/y - 프론트가 그대로 돌려보낸다."""
+    finger_detected: bool
+    x: int | None = None
+    y: int | None = None
+
+
 class AnalyzeRequest(BaseModel):
     image: str
     userQuestion: str = "이 문제 좀 알려줘"
     checkOnly: bool = False
     userLevel: str | None = None
+    checkResult: CheckResult | None = None
 
 
 def _save_base64_image(base64_image: str) -> str:
@@ -71,9 +82,20 @@ def _save_base64_image(base64_image: str) -> str:
 @app.post("/api/analyze")
 async def analyze(req: AnalyzeRequest):
     # 1단계: 이미지 품질 검증 + 손가락 좌표 추출 (OpenCV)
+    t_request = time.perf_counter()
+    # 단계별 소요 시간(초) - 응답의 "timings"로 내려보낸다 (속도 측정용, 2026-10-26)
+    timings = {}
     print(f"1. 이미지 분석 시작... (checkOnly={req.checkOnly}, userQuestion={req.userQuestion!r})")
-    vision_result = analyze_image(req.image)
-    print("비전 결과:", vision_result)
+    if not req.checkOnly and req.checkResult is not None:
+        # 같은 사진을 촬영 직후 검사에서 이미 analyze_image로 검사했다 - 그 결과를 프론트가
+        # 돌려보냈으므로 다시 돌리지 않는다 (예전엔 화질검사+손끝검출이 요청마다 2번 돌았음).
+        vision_result = {"status": "success", **req.checkResult.model_dump()}
+        print("비전 결과(촬영 검사 결과 재사용):", vision_result)
+    else:
+        t_vision = time.perf_counter()
+        vision_result = analyze_image(req.image)
+        timings["analyze_image"] = round(time.perf_counter() - t_vision, 3)
+        print("비전 결과:", vision_result)
 
     if vision_result["status"] == "retake":
         return {
@@ -81,6 +103,7 @@ async def analyze(req: AnalyzeRequest):
             "message": vision_result["message"],
             "blur_score": vision_result["blur_score"],
             "brightness": vision_result["brightness"],
+            "timings": {**timings, "server_total": round(time.perf_counter() - t_request, 3)},
         }
 
     if vision_result["status"] == "error":
@@ -92,16 +115,20 @@ async def analyze(req: AnalyzeRequest):
         if not vision_result["finger_detected"]:
             image_path = _save_base64_image(req.image)
             try:
-                fail = check_without_finger(image_path)
+                fail = check_without_finger(image_path, timings)
             finally:
                 os.remove(image_path)
             if fail is not None:
+                fail["timings"] = {**timings, "server_total": round(time.perf_counter() - t_request, 3)}
                 return fail
+        timings["server_total"] = round(time.perf_counter() - t_request, 3)
+        print(f"   [시간] {timings}")
         return {
             "status": "checked",
             "finger_detected": vision_result["finger_detected"],
             "x": vision_result.get("x"),
             "y": vision_result.get("y"),
+            "timings": timings,
         }
 
     # 2단계: 이미지 + 음성 질문(userQuestion)을 동시에 넣어 해설 파이프라인 실행
@@ -118,6 +145,8 @@ async def analyze(req: AnalyzeRequest):
     finally:
         os.remove(image_path)
 
+    result["timings"] = {**timings, **result.get("timings", {}),
+                         "server_total": round(time.perf_counter() - t_request, 3)}
     print("3. 해설 파이프라인 완료:", result.get("status"))
     return result
 

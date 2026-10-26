@@ -329,6 +329,7 @@ export function renderVoiceProcessing(container) {
           image: photoState.dataUri,
           userQuestion: questionText,
           userLevel: getUserLevelForRequest(),
+          checkResult: photoState.check || undefined, // 촬영 검사 결과 (없으면 서버가 다시 검사)
         }),
         signal,
       });

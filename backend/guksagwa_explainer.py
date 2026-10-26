@@ -30,7 +30,9 @@ locate_result.query_text 대신 explanation.get("problem_text")로 읽도록).
 """
 import cv2
 
-from gemini_config import get_model, parse_json_response
+from gemini_config import (
+    get_model, parse_json_response, timed_generate, MARKED_IMAGE_HINT, VOICE_QUESTION_RULES, voice_question_section,
+)
 
 _BASE_PROMPT_TEMPLATE = """
 당신은 야학 어르신을 위한 선생님입니다.
@@ -39,11 +41,11 @@ _BASE_PROMPT_TEMPLATE = """
 - 쉬운 우리말 사용
 - 친근한 말투
 - 아래 JSON 형식으로만 답하세요. 다른 설명, 인사말, 마크다운 코드블록 없이 순수 JSON만 출력하세요.
-- problem_text는 절대 지어내거나 요약하지 말고, 빨간 박스 안에 실제로 인쇄된 문제(발문+보기)를
+- problem_text는 절대 지어내거나 요약하지 말고, 풀이한 문제의 발문+보기를 이미지에 인쇄된
   그대로(오타·철자까지) 옮겨 적으세요. 문항 번호("8.")는 빼고 본문만 적으세요.
 
-{{"problem_text": "빨간 박스 안, 실제로 풀어야 할 문제의 발문과 보기 전체를 이미지에 보이는 그대로 옮겨 적으세요. 아래 [문제 내용] 참고용 텍스트가 이미지와 다르면(다른 문제와 섞였거나 잘렸으면) 참고용 텍스트를 무시하고 이미지에 실제로 보이는 내용을 옮기세요.",
-  "explanation_text": "질문 되짚기(있다면) + 문제 풀이를 하나로 자연스럽게 이어 쓴 설명 (아래 [해설 작성 규칙] 참고)",
+{{"problem_text": "풀이한 문제의 발문과 보기 전체를 이미지에 보이는 그대로 옮겨 적으세요.",
+  "explanation_text": "음성 질문에 대한 답(구체적인 질문이 있을 때) + 문제 풀이를 하나로 자연스럽게 이어 쓴 설명 (아래 [해설 작성 규칙] 참고)",
   "answer": "정답 번호와 내용",
   "question_number": 실제로 풀이한 문제 번호(정수)}}
 
@@ -56,54 +58,25 @@ _BASE_PROMPT_TEMPLATE = """
   화면·음성 양쪽의 유일한 원천입니다.
 - "질문에 대한 답변:", "문제 해설:" 같은 소제목을 넣지 마세요. TTS가 그대로 읽으므로 한
   덩어리의 자연스러운 말로 이어져야 합니다.
-- 음성 질문(아래 [음성 질문] 섹션)이 있을 때만 해설 맨 앞에서 무엇을 물었는지 자연스럽게
-  짚고 시작하세요(인식된 문장을 그대로 인용하지 말고 풀어서 말하세요). 음성 질문이 없으면
-  곧바로 문제 해설만 쓰세요.
-- 음성 질문이 "설명해줘", "풀어줘" 같은 일반적인 요청이면 되짚지 말고 바로 해설하세요
-  (되짚으면 "설명해달라고 하셨죠, 설명하면"처럼 순환이 됩니다).
-- 음성 질문 인식 결과를 이해할 수 없거나 이 문제와 무관해 보이면, 절대로 질문을 되짚거나
-  지어내지 말고 문제 해설만 쓰세요. 이게 가장 중요한 규칙입니다 - 깨진 인식 결과로 억지로
-  되짚으면 없는 질문을 지어내는 것이 됩니다.
 
+{voice_rules}
 {optional_sections}
-[문제 내용 참고용 - OCR 추출 결과라 다른 문제와 섞였거나 잘렸을 수 있습니다. 이미지의 빨간
-박스 안 내용과 다르면 이 텍스트는 무시하고 이미지에서 직접 옮기세요]
-{ocr_text}
-
-[핵심 키워드]
-{keywords}
-
 [문제 유형]
-과목: {subject} / 대분류: {major} / 중분류: {minor}
+과목: {subject}
 """
 
-_MARKED_IMAGE_HINT = (
-    "첨부한 이미지는 문제지 페이지 전체이며, 지금 풀어야 할 문제는 빨간 박스로 표시돼 있습니다. "
-    "빨간 박스 안의 문제만 푸세요. 박스 밖에 보이는 다른 문제는 절대 참고하지 마세요. "
-    "박스 안에 삽화(그림/표/그래프 등)가 있으면 그 내용(수치, 그림 속 관계 등)도 참고해서 "
-    "문제를 푸세요. 답변은 위에서 지시한 JSON 텍스트 형식으로만 하고, 이미지를 그리거나 다시 "
-    "첨부하지 마세요."
-)
 
-
-def _build_optional_sections(range_header, low_conf_lines, subject_hint, category,
-                              transcript, reference):
+def _build_optional_sections(subject_hint, category, reference):
     """
     선택 입력들을 프롬프트 블록으로 조립한다. 값이 없는 섹션은 통째로 생략한다
     (빈 섹션 헤더만 남는 것 방지). english_explainer.py의 동명 함수와 로직은 같다 -
     프롬프트 본문 구조가 서로 달라 공용 모듈로 뽑기보다 각자 두었다.
+
+    OCR에서 나온 텍스트(문항 텍스트, 공통 지시문, 신뢰도 낮은 줄)는 2026-10-26부터 넣지 않는다 -
+    Gemini가 이미지에서 문제를 직접 다시 읽으므로(problem_text) 중복이고, 옆 문제가 섞인 OCR
+    텍스트가 오히려 혼란을 줬다. 음성 질문은 프롬프트 맨 끝에 따로 붙인다(voice_question_section).
     """
     parts = []
-
-    if range_header:
-        parts.append(f"[공통 지시문 - 여러 문제가 이 지시문을 공유합니다]\n{range_header}\n")
-
-    if low_conf_lines:
-        joined = " / ".join(low_conf_lines)
-        parts.append(
-            "[OCR 인식 신뢰도가 낮은 부분]\n"
-            f"다음 텍스트는 글자 인식이 불확실할 수 있습니다 - 이미지를 직접 보고 확인하세요: {joined}\n"
-        )
 
     if subject_hint or category:
         hint_lines = []
@@ -112,9 +85,6 @@ def _build_optional_sections(range_header, low_conf_lines, subject_hint, categor
         if category:
             hint_lines.append(f"유형 힌트: {category}")
         parts.append("[분류 힌트 - 참고용, 이미지가 우선]\n" + "\n".join(hint_lines) + "\n")
-
-    if transcript:
-        parts.append(f"[음성 질문 - 학생이 음성으로 물어본 내용]\n\"{transcript}\"\n")
 
     if reference:
         ref_answer = reference.get("answer", "") if isinstance(reference, dict) else ""
@@ -151,58 +121,49 @@ def _apply_korean_key_fallback(parsed):
 
 
 def explain_guksagwa(ocr_result, classification, marked_image=None, user_question="이 문제 좀 알려줘",
-                      *, range_header=None, low_conf_lines=None, subject_hint=None,
-                      category=None, transcript=None, reference=None):
+                      *, subject_hint=None, category=None, transcript=None, reference=None):
     """
-    ocr_result: extract_problem_info()(v1) 또는 question_locator 결과를 옮겨 담은 동등한 dict
-      ({"ocr_text", "keywords", ...}).
-    classification: classify_problem()의 반환값 ({"과목", "대분류", "중분류"}).
+    ocr_result: question_locator 결과를 옮겨 담은 dict ({"ocr_text", ...}). 프롬프트에는
+      넣지 않고, Gemini가 problem_text를 못 준 경우의 폴백으로만 쓴다.
+    classification: {"과목": str}.
     marked_image: 전체 페이지 + 대상 문항을 빨간 박스로 표시한 이미지 (BGR np.ndarray).
-      v1 파이프라인은 이 자리에 문제만 잘라낸 crop을 그대로 넘긴다 - 위치 인자라 이름이
-      바뀌어도 호출부는 안 깨진다. None이면 텍스트만으로 호출한다.
-    range_header: 이 문제가 속한 공통 지시문 본문. 없으면 None.
-    low_conf_lines: 이 문제 범위 안에서 OCR 신뢰도가 낮았던 줄들의 원문 텍스트 리스트. 없으면 None.
+      None이면 텍스트만으로 호출한다.
     subject_hint, category: Pinecone 다수결/검색 결과로 얻은 세부 과목·유형 힌트. 없으면 None.
-    transcript: 학생이 음성으로 한 질문 텍스트. 없으면 None.
+    transcript: 학생이 음성으로 한 질문 텍스트. 없으면 user_question을 쓴다 - 어느 쪽이든
+      프롬프트에는 한 번만 들어간다.
     reference: 유사 기출 1건 {"answer":..., "explanation":...} 형태. 없으면 None.
 
     반환: {"problem_text": str, "explanation_text": str,
            "answer": str, "question_number": int|None, "subject_mismatch": str|None}
-    problem_text는 Gemini가 이미지에서 직접 옮겨 적은 값이다 - ocr_result["ocr_text"]가
-    아니다(그건 참고용 힌트 + Gemini가 비워서 준 경우의 폴백으로만 쓰인다).
+    problem_text는 Gemini가 이미지에서 직접 옮겨 적은 값이다 - ocr_result["ocr_text"]는
+    Gemini가 비워서 준 경우의 폴백으로만 쓰인다.
     subject_mismatch가 str이면 나머지 필드는 빈 값이다 - 호출부가 이 경우 다른 과목 분기로
     재호출해야 한다.
     answer는 원문 문자열 그대로 반환한다 - {number, text} 정규화는 pipeline.py가
     answer_utils.normalize_answer로 한 번만 한다 (english_explainer.py와 공용 로직이라
     여기서 하지 않음).
     """
-    optional_sections = _build_optional_sections(
-        range_header, low_conf_lines, subject_hint, category, transcript, reference
-    )
+    optional_sections = _build_optional_sections(subject_hint, category, reference)
 
     prompt = _BASE_PROMPT_TEMPLATE.format(
-        ocr_text=ocr_result.get("ocr_text", ""),
-        keywords=", ".join(ocr_result.get("keywords", [])),
         subject=classification.get("과목", ""),
-        major=classification.get("대분류", ""),
-        minor=classification.get("중분류", ""),
+        voice_rules=VOICE_QUESTION_RULES,
         optional_sections=optional_sections,
     )
-    if user_question:
-        prompt += f'\n[질문]\n"{user_question}"\n'
+    prompt += voice_question_section(transcript or user_question)
 
     parts = [prompt]
     if marked_image is not None:
         ok, buf = cv2.imencode(".jpg", marked_image)
         if ok:
-            parts = [{"mime_type": "image/jpeg", "data": buf.tobytes()}, _MARKED_IMAGE_HINT, prompt]
+            parts = [{"mime_type": "image/jpeg", "data": buf.tobytes()}, MARKED_IMAGE_HINT, prompt]
 
     model = get_model(json_mode=True)
-    response = model.generate_content(parts)
+    response, gemini_info = timed_generate(model, parts)
     parsed = parse_json_response(response.text)
 
     if parsed.get("subject_mismatch"):
-        return {"subject_mismatch": parsed["subject_mismatch"]}
+        return {"subject_mismatch": parsed["subject_mismatch"], "gemini": gemini_info}
 
     parsed = _apply_korean_key_fallback(parsed)
     explanation_text = parsed.get("explanation_text", "")
@@ -218,4 +179,5 @@ def explain_guksagwa(ocr_result, classification, marked_image=None, user_questio
         "answer": parsed.get("answer", ""),
         "question_number": parsed.get("question_number"),
         "subject_mismatch": None,
+        "gemini": gemini_info,
     }
