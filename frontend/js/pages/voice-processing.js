@@ -3,10 +3,11 @@ import { getState, setState, getUserLevelForRequest } from '../state.js';
 import { renderHeader } from '../components/header.js';
 import { startLoading, endLoading } from '../loading-guard.js';
 import { speak, stopSpeaking } from '../tts.js';
+import { mountWaitQuiz, showReadyPopup } from '../components/wait-quiz.js';
 
 const GUIDE_VOICE = '마이크 버튼을 누르고 질문해 주세요. 말씀이 끝나면 버튼을 한 번 더 눌러 주세요.';
 
-const DEBUG_STEPS = ['ready', 'recording', 'recognizing', 'understanding', 'error'];
+const DEBUG_STEPS = ['ready', 'recording', 'waiting', 'error'];
 const API_BASE = 'https://yahak-backend-815747505478.asia-northeast3.run.app';
 // Whisper STT 서버 (whisper/ 폴더를 Cloud Run에 따로 배포한 서비스)
 // 배포 후 나온 서비스 URL로 바꿔 넣기. 로컬에서 열면 로컬 백엔드(main.py)의 /transcribe 사용
@@ -44,13 +45,13 @@ export function renderVoiceProcessing(container) {
   // 최종 질문 텍스트는 항상 Whisper 결과를 씀 (자막 텍스트는 서버로 안 보냄)
   let recognition = null;
   let recognizedText = '';
+  let quiz = null; // 기다리는 동안 퀴즈 - 해설이 나왔을 때 퀴즈를 했는지 확인용
   let retakeMessage = ''; // 해설 요청이 retake(사진 다시 찍기)로 끝났을 때 보여줄 서버 안내 문구
 
   function render() {
     if (step === 'ready') renderReady();
     else if (step === 'recording') renderRecording();
-    else if (step === 'recognizing') renderRecognizing();
-    else if (step === 'understanding') renderUnderstanding();
+    else if (step === 'waiting') renderWaiting();
     else renderError();
   }
 
@@ -238,6 +239,9 @@ export function renderVoiceProcessing(container) {
         audioContext.close();
         audioContext = null;
       }
+      // 음성 인식 + 해설 생성(약 13~16초) 동안 퀴즈를 보여준다
+      step = 'waiting';
+      render();
     });
   }
 
@@ -257,17 +261,6 @@ export function renderVoiceProcessing(container) {
         },
       }));
     }
-  }
-
-  function renderRecognizing() {
-    hideHeader();
-    container.innerHTML = `
-      <section class="voice-screen state-screen">
-        <p>음성 인식 성공!</p>
-        ${recognizedText ? '<p style="font-size: 0.8rem; color: var(--color-math-accent); margin: -20px 24px 0; text-align: center;">"' + recognizedText + '"</p>' : ''}
-        <img src="image/success_icon.png" alt="" aria-hidden="true" class="result-icon" />
-      </section>
-    `;
   }
 
   async function uploadVoice(blob) {
@@ -307,23 +300,20 @@ export function renderVoiceProcessing(container) {
     recognizedText = finalText;
     setState({ voiceQuestionText: finalText });
 
-    // 1) 음성 인식 성공 화면 잠깐 보여주기 (인식된 텍스트 함께 표시)
-    step = 'recognizing';
-    render();
-
-    // 2) 0.8초 뒤 '질문을 이해하고 있어요' 화면으로 전환하며 이미지+음성을 동시에 제미나이로 전송!
-    setTimeout(() => {
-      requestAnalyzeWithImageAndVoice(finalText, signal); // 같은 로딩으로 이어가기 위해 signal 전달
-    }, 800);
+    // 따로 "인식 성공" 화면을 띄우지 않고, 퀴즈 화면 위쪽에 인식한 질문만 보여주고 바로 해설 요청
+    showRecognizedQuestion();
+    requestAnalyzeWithImageAndVoice(finalText, signal); // 같은 로딩으로 이어가기 위해 signal 전달
   }
 
   // ★ 9번 핵심: 사진(image)과 음성 질문(userQuestion)을 동시에 백엔드(/api/analyze)로 전달 ★
   async function requestAnalyzeWithImageAndVoice(questionText, existingSignal) {
     const signal = existingSignal || startLoading(LEAVE);
-    if (signal.aborted) return; // 인식 성공 화면(0.8초) 동안 나갔으면 중단
+    if (signal.aborted) return;
 
-    step = 'understanding';
-    render();
+    if (step !== 'waiting') { // "사진으로만 질문하기"로 바로 온 경우
+      step = 'waiting';
+      render();
+    }
 
     const photoState = getState().photo;
     if (!photoState || !photoState.dataUri) {
@@ -367,7 +357,11 @@ export function renderVoiceProcessing(container) {
       const data = await res.json();
       if (data.status === 'success') {
         setState({ question: data });
-        endLoading(() => navigate('/solve'));
+        // 퀴즈를 안 건드렸으면 바로 해설로, 풀고 있었으면 팝업으로 알리고 본인이 누르게 함
+        endLoading(() => {
+          if (quiz && quiz.touched()) showReadyPopup(() => navigate('/solve'));
+          else navigate('/solve');
+        });
       } else if (data.status === 'retake') {
         // 사진 쪽 문제(사진 정보 만료, 문제 위치/글자를 못 찾음 등) - 다시 녹음해도 해결 안 되므로
         // "다시 말씀해주세요" 대신 서버 안내 문구와 사진 다시 찍기 버튼을 보여준다
@@ -392,15 +386,29 @@ export function renderVoiceProcessing(container) {
     }
   }
 
-  function renderUnderstanding() {
+  // 기다리는 화면: 위에는 진행 상태 + 인식한 질문, 아래는 퀴즈
+  function renderWaiting() {
     hideHeader();
     container.innerHTML = `
-      <section class="voice-screen state-screen">
-        <p>질문을 이해하고 있어요.<br />잠시만 기다려주세요<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></p>
-        ${recognizedText ? '<p style="font-size: 0.85rem; color: var(--color-text-muted); margin: -20px 24px 0; text-align: center;">질문: "' + recognizedText + '"</p>' : ''}
-        <div class="spinner" aria-hidden="true"></div>
+      <section class="voice-screen wait-screen">
+        <div class="wait-status">
+          <div class="spinner wait-spinner" aria-hidden="true"></div>
+          <p>질문을 이해하고 있어요.<br />잠시만 기다려주세요</p>
+        </div>
+        <p class="wait-question" id="wait-question" hidden></p>
+        <p class="wait-quiz-title">기다리는 동안 풀어보세요</p>
+        <div id="wait-quiz"></div>
       </section>
     `;
+    quiz = mountWaitQuiz(container.querySelector('#wait-quiz'));
+    showRecognizedQuestion();
+  }
+
+  function showRecognizedQuestion() {
+    const el = container.querySelector('#wait-question');
+    if (!el || !recognizedText) return;
+    el.textContent = '질문: "' + recognizedText + '"';
+    el.hidden = false;
   }
 
   function renderError() {

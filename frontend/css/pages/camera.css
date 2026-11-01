@@ -14,12 +14,16 @@
   overflow: hidden;
 }
 
-/* 실시간 카메라 영상 - 화면 전체를 배경처럼 채움, 나머지 요소는 그 위에 얹힘 */
+/* 실시간 카메라 영상 - 기종과 상관없이 가로:세로 3:4 박스로 화면 가운데에 보여줌.
+   찍을 때도 이 3:4 영역만 잘라서 보내므로(photo-processing.js) 보이는 대로 찍힌다.
+   위아래 남는 부분은 검은 배경 */
 #camera-video {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100%, 75vh); /* 화면이 넓어도(태블릿·PC) 3:4가 깨지지 않게 */
+  aspect-ratio: 3 / 4;
   object-fit: cover;
   z-index: 0;
 }

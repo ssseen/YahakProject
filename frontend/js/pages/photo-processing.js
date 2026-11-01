@@ -110,18 +110,60 @@ export function renderPhotoProcessing(container) {
     container.querySelector('#shutter-btn').addEventListener('click', () => capture(video));
   }
 
-  function capture(video) {
+  // 찍은 사진은 화면에 보이던 3:4 영역(가운데)만 잘라서 보낸다 - 보이는 대로 찍히게
+  const PHOTO_RATIO = 3 / 4;      // 가로 : 세로
+  const MAX_LONG_SIDE = 1960;     // 서버가 OCR·손끝 검출에 쓰는 크기(장축 1960px)와 같게 - 더 크게 보내도 서버가 줄임
+  let capturing = false;
+
+  // 안드로이드 크롬/삼성 인터넷: 영상 한 장면이 아니라 카메라의 "사진 촬영" 기능으로 찍는다
+  // (영상 프레임은 화질이 낮은 기종이 많음). 아이폰 사파리는 ImageCapture가 없어서 영상 프레임 사용.
+  async function grabSource(video) {
+    const track = stream && stream.getVideoTracks()[0];
+    if ('ImageCapture' in window && track) {
+      try {
+        const photoBlob = await new ImageCapture(track).takePhoto();
+        const bitmap = await createImageBitmap(photoBlob);
+        const videoPortrait = video.videoHeight > video.videoWidth;
+        const photoPortrait = bitmap.height > bitmap.width;
+        console.log(`📷 사진 촬영 ${bitmap.width}x${bitmap.height} (영상 ${video.videoWidth}x${video.videoHeight})`);
+        if (videoPortrait === photoPortrait) return bitmap;
+        // 방향이 화면과 다르게 나오는 기기는 회전 방향을 확신할 수 없으니 영상 프레임으로 대신함
+        console.warn('사진 방향이 화면과 달라 영상 프레임으로 촬영');
+      } catch (err) {
+        console.warn('사진 촬영 기능 실패 - 영상 프레임으로 촬영:', err);
+      }
+    }
+    return video;
+  }
+
+  async function capture(video) {
+    if (capturing) return; // 셔터 연타 방지
+    capturing = true;
+
     const flash = document.createElement('div');
     flash.className = 'camera-flash';
     container.querySelector('.camera-screen').appendChild(flash);
     setTimeout(() => flash.remove(), 250);
 
+    const src = await grabSource(video);
+    const sw = src.videoWidth || src.width;
+    const sh = src.videoHeight || src.height;
+
+    // 가운데 3:4 영역 계산 (미리보기의 object-fit: cover와 같은 방식)
+    let cw = sw, ch = Math.round(sw / PHOTO_RATIO);
+    if (ch > sh) { ch = sh; cw = Math.round(sh * PHOTO_RATIO); }
+    const sx = Math.round((sw - cw) / 2);
+    const sy = Math.round((sh - ch) / 2);
+    const scale = Math.min(1, MAX_LONG_SIDE / Math.max(cw, ch));
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.width = Math.round(cw * scale);
+    canvas.height = Math.round(ch * scale);
+    canvas.getContext('2d').drawImage(src, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+    if (src.close) src.close(); // ImageBitmap 메모리 해제
 
     canvas.toBlob((blob) => {
+      capturing = false;
       const previewUrl = URL.createObjectURL(blob);
       setState({ photo: { blob, previewUrl } });
 

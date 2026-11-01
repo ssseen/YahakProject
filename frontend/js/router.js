@@ -74,7 +74,11 @@ function router() {
 
 export function initRouter() {
   window.addEventListener('hashchange', router);
-  window.addEventListener('DOMContentLoaded', router);
-  // 스크립트가 DOMContentLoaded 이후 로드되는 경우 대비
-  if (document.readyState !== 'loading') router();
+  // 첫 화면은 한 번만 그린다 (예전엔 둘 다 실행돼서 첫 화면이 두 번 그려졌고,
+  // 카메라 화면이면 카메라를 두 번 켜서 하나가 안 꺼진 채 남았음)
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', router, { once: true });
+  } else {
+    router();
+  }
 }

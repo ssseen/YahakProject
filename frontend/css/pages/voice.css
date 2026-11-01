@@ -90,3 +90,132 @@
   text-decoration: underline;
   font-weight: 700;
 }
+/* ===== 기다리는 화면 (음성 인식 + 해설 생성 중 퀴즈) ===== */
+.voice-screen.wait-screen {
+  gap: 16px;
+  margin-top: 0;
+  padding: 8px 16px 32px;
+  justify-content: flex-start;
+}
+.wait-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  font-size: 0.9rem;
+}
+.wait-spinner {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+.wait-question {
+  font-size: 0.85rem;
+  color: var(--color-math-accent);
+  margin: 0;
+  word-break: keep-all;
+}
+.wait-quiz-title {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+#wait-quiz {
+  width: 100%;
+}
+.wait-quiz-card {
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wait-quiz-label {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-math-accent);
+}
+.wait-quiz-q {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  word-break: keep-all;
+}
+.wait-quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wait-quiz-option {
+  min-height: 56px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.95rem;
+  text-align: left;
+  word-break: keep-all;
+}
+.wait-quiz-option.correct {
+  border-color: #4CAF50;
+  background: #E8F5E9;
+  font-weight: 700;
+}
+.wait-quiz-option.wrong {
+  border-color: #E57373;
+  background: #FDECEA;
+}
+.wait-quiz-option:disabled {
+  color: var(--color-text);
+  opacity: 1;
+}
+.wait-quiz-feedback {
+  margin: 0;
+  font-size: 0.85rem;
+  word-break: keep-all;
+}
+
+/* ===== 해설 준비 완료 팝업 (퀴즈 위, 반투명 검정 배경) ===== */
+.ready-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.ready-box {
+  width: 100%;
+  max-width: 340px;
+  background: var(--color-bg);
+  border-radius: 20px;
+  padding: 28px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+.ready-icon {
+  width: 72px;
+  height: 72px;
+}
+.ready-msg {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.ready-go {
+  width: 100%;
+  min-height: 60px;
+  font-size: 1.05rem;
+}
+.wait-quiz-next[hidden] {
+  display: none; /* .btn의 display가 hidden 속성을 덮어쓰는 것 방지 */
+}
