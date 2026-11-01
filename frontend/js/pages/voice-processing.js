@@ -324,18 +324,16 @@ export function renderVoiceProcessing(container) {
 
     // sessionId가 있으면 사진을 다시 보내지 않는다 - 서버가 녹음하는 동안 미리 처리해둔 결과로 바로 해설.
     // 없으면(구버전 서버 등) 예전처럼 사진 + 촬영 검사 결과를 보낸다.
-    const body = photoState.sessionId
-      ? {
-          sessionId: photoState.sessionId,
-          userQuestion: questionText,
-          userLevel: getUserLevelForRequest(),
-        }
-      : {
-          image: photoState.dataUri,
-          userQuestion: questionText,
-          userLevel: getUserLevelForRequest(),
-          checkResult: photoState.check || undefined, // 촬영 검사 결과 (없으면 서버가 다시 검사)
-        };
+    // sessionId(미리 처리 결과)와 사진을 같이 보낸다. 서버는 세션이 있으면 사진은 안 쓰고 바로 해설,
+    // 세션이 없으면(시간 초과·서버 재시작·다른 서버로 요청이 감) 같이 온 사진으로 처음부터 처리한다
+    // - 예전엔 sessionId만 보내서, 세션이 없으면 "사진 다시 찍기"가 떴음
+    const body = {
+      sessionId: photoState.sessionId || undefined,
+      image: photoState.dataUri,
+      userQuestion: questionText,
+      userLevel: getUserLevelForRequest(),
+      checkResult: photoState.check || undefined, // 촬영 검사 결과 (없으면 서버가 다시 검사)
+    };
 
     try {
       const res = await fetch(API_BASE + '/api/analyze', {
@@ -393,7 +391,7 @@ export function renderVoiceProcessing(container) {
       <section class="voice-screen wait-screen">
         <div class="wait-status">
           <div class="spinner wait-spinner" aria-hidden="true"></div>
-          <p>질문을 이해하고 있어요.<br />잠시만 기다려주세요</p>
+          <p>해설을 만들고 있어요<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></p>
         </div>
         <p class="wait-question" id="wait-question" hidden></p>
         <p class="wait-quiz-title">기다리는 동안 풀어보세요</p>

@@ -98,11 +98,24 @@
   justify-content: flex-start;
 }
 .wait-status {
+  position: sticky; /* 퀴즈를 내려 봐도 진행 상태는 항상 위에 보이게 */
+  top: 0;
+  z-index: 5;
+  width: calc(100% + 32px);
+  margin: -8px -16px 0;
+  padding: 12px 16px;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: center;
+  gap: 12px;
   text-align: left;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+}
+.wait-status p {
+  margin: 0;
+  word-break: keep-all;
 }
 .wait-spinner {
   width: 32px;

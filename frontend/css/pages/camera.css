@@ -17,12 +17,25 @@
 /* 실시간 카메라 영상 - 기종과 상관없이 가로:세로 3:4 박스로 화면 가운데에 보여줌.
    찍을 때도 이 3:4 영역만 잘라서 보내므로(photo-processing.js) 보이는 대로 찍힌다.
    위아래 남는 부분은 검은 배경 */
+/* 촬영 화면은 휴대폰 화면에 딱 맞게 고정 - 스크롤 없이 영상과 셔터가 한 화면에 보이게.
+   (예전 100vh는 아이폰 크롬 등에서 주소창 높이까지 포함돼서 셔터가 화면 밖으로 밀렸음)
+   위쪽 64px = 뒤로가기 줄, 아래쪽 120px = 셔터 자리, 그 사이에 3:4 영상 */
+.camera-screen:not(.state-screen) {
+  position: fixed;
+  inset: 0;
+  height: 100vh;
+  height: 100dvh; /* 주소창을 뺀 실제 보이는 높이 (지원 브라우저) */
+  min-height: 0;
+  margin: 0;
+  padding: 64px 24px 120px; /* 안내 문구·가이드 프레임이 영상 가운데에 오게 */
+  z-index: 10;
+}
 #camera-video {
   position: absolute;
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(100%, 75vh); /* 화면이 넓어도(태블릿·PC) 3:4가 깨지지 않게 */
+  top: 64px;
+  transform: translateX(-50%);
+  width: min(100%, calc((100dvh - 184px) * 3 / 4)); /* 화면이 짧거나 넓어도 3:4 유지 */
   aspect-ratio: 3 / 4;
   object-fit: cover;
   z-index: 0;
@@ -98,7 +111,7 @@
 
 .shutter-btn {
   position: absolute;
-  bottom: 40px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   width: 72px;
@@ -110,7 +123,7 @@
 }
 
 .shutter-btn:active {
-  transform: scale(0.9);
+  transform: translateX(-50%) scale(0.9); /* 가운데 정렬(translateX)을 유지한 채 눌림 효과 */
 }
 
 .camera-flash {

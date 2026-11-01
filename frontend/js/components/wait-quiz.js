@@ -38,7 +38,31 @@ function buildDeck(level) {
     if (english[i]) deck.push(english[i]);
     if (math[i]) deck.push(math[i]);
   }
-  return deck;
+  // 전에 본 문제는 뒤로 - 한 바퀴 다 보기 전까지는 새 문제부터 나오게
+  const seen = loadSeen(level);
+  return [...deck.filter((d) => !seen.includes(d.q)), ...deck.filter((d) => seen.includes(d.q))];
+}
+
+// 본 문제 기록 (학력별, 이 기기 브라우저에만 저장). 다 보면 기록을 비우고 다시 처음부터
+function seenKey(level) {
+  return 'waitQuizSeen_' + level;
+}
+function loadSeen(level) {
+  try {
+    return JSON.parse(localStorage.getItem(seenKey(level))) || [];
+  } catch (e) {
+    return [];
+  }
+}
+function markSeen(level, q, total) {
+  try {
+    let seen = loadSeen(level).filter((x) => x !== q);
+    seen.push(q);
+    if (seen.length >= total) seen = [q]; // 한 바퀴 다 봤으면 기록 초기화
+    localStorage.setItem(seenKey(level), JSON.stringify(seen));
+  } catch (e) {
+    // 저장 못 해도 퀴즈는 그대로 동작
+  }
 }
 
 function escapeHtml(s) {
@@ -48,12 +72,20 @@ function escapeHtml(s) {
 // el 안에 퀴즈를 그린다. 반환값 touched(): 사용자가 퀴즈를 한 번이라도 눌렀는지
 export function mountWaitQuiz(el) {
   const level = getState().settings?.userLevel;
-  const deck = buildDeck(['초졸', '중졸', '고졸'].includes(level) ? level : DEFAULT_LEVEL);
+  const lv = ['초졸', '중졸', '고졸'].includes(level) ? level : DEFAULT_LEVEL;
+  let deck = buildDeck(lv);
   let index = 0;
   let touched = false;
 
   function renderCard() {
-    const item = deck[index % deck.length];
+    if (index >= deck.length) { // 끝까지 풀었으면 새로 섞어서 이어감 (같은 순서로 반복 X)
+      const last = deck[deck.length - 1];
+      deck = buildDeck(lv);
+      if (deck[0] === last || deck[0].q === last.q) deck.push(deck.shift());
+      index = 0;
+    }
+    const item = deck[index];
+    markSeen(lv, item.q, deck.length);
     el.innerHTML = `
       <div class="wait-quiz-card">
         <p class="wait-quiz-label">${item.label}</p>
@@ -83,6 +115,7 @@ export function mountWaitQuiz(el) {
     el.querySelector('.wait-quiz-next').addEventListener('click', () => {
       index += 1;
       renderCard();
+      window.scrollTo(0, 0); // 다음 문제는 맨 위(진행 상태 + 질문)부터 보이게
     });
   }
 
