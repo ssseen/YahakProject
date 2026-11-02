@@ -52,6 +52,53 @@ export function renderPhotoProcessing(container) {
     }
   }
 
+  // 해상도를 안 정하면 브라우저 기본값(보통 640x480)으로 찍혀서 글자가 뭉개짐
+  // ideal만 쓰면 기기가 지원하는 가장 가까운 해상도로 맞춰줌 (지원 안 해도 에러 안 남)
+  const VIDEO_SIZE = { width: { ideal: 3840 }, height: { ideal: 2160 } };
+
+  function hasAutoFocus(track) {
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    return Array.isArray(caps.focusMode) && caps.focusMode.includes('continuous');
+  }
+
+  // 후면 카메라를 연다. 안드로이드는 후면 렌즈를 "camera 0, facing back", "camera 2, facing back"
+  // 처럼 따로 보여줘서 facingMode만 주면 브라우저가 초광각을 고를 수 있다. 실측(갤럭시, 11-02):
+  // camera 2가 골라졌는데 지원 초점이 ["manual"]뿐(자동초점 없음)이라 가까이 찍은 문제지가 흐렸다.
+  // 그래서 고른 카메라에 자동초점이 없으면 다른 후면 카메라를 하나씩 열어 자동초점 되는 걸 쓴다.
+  // 아이폰은 focusMode 정보를 안 줘서(iOS가 렌즈·초점을 알아서 처리) 그대로 둔다.
+  async function openBackCamera() {
+    const open = (video) => navigator.mediaDevices.getUserMedia({ video, audio: false });
+    let s = await open({ facingMode: 'environment', ...VIDEO_SIZE });
+    const first = s.getVideoTracks()[0];
+    const caps = first.getCapabilities ? first.getCapabilities() : {};
+    if (!Array.isArray(caps.focusMode) || hasAutoFocus(first)) return s;
+
+    try {
+      const firstId = first.getSettings().deviceId;
+      const others = (await navigator.mediaDevices.enumerateDevices())
+        .filter((d) => d.kind === 'videoinput' && /back/i.test(d.label) && d.deviceId !== firstId);
+      camDebug(`자동초점 없음(${first.label}) - 다른 후면 카메라 확인: ${others.map((d) => d.label).join(' | ')}`);
+      s.getTracks().forEach((t) => t.stop()); // 안드로이드는 카메라 두 개를 동시에 못 연다
+      for (const d of others) {
+        try {
+          const cand = await open({ deviceId: { exact: d.deviceId }, ...VIDEO_SIZE });
+          if (hasAutoFocus(cand.getVideoTracks()[0])) {
+            camDebug(`자동초점 되는 카메라로 변경: ${d.label}`);
+            return cand;
+          }
+          cand.getTracks().forEach((t) => t.stop());
+        } catch (err) {
+          camDebug(`${d.label} 열기 실패: ${err}`);
+        }
+      }
+    } catch (err) {
+      camDebug('카메라 목록 확인 실패: ' + err);
+    }
+    // 자동초점 되는 후면 카메라가 없으면 원래대로 브라우저가 고른 카메라
+    camDebug('자동초점 되는 후면 카메라 없음 - 브라우저가 고른 카메라 사용');
+    return open({ facingMode: 'environment', ...VIDEO_SIZE });
+  }
+
   async function renderGuide() {
     container.innerHTML = `
       <section class="camera-screen">
@@ -86,16 +133,7 @@ export function renderPhotoProcessing(container) {
     const video = container.querySelector('#camera-video');
 
     try {
-      // 해상도를 안 정하면 브라우저 기본값(보통 640x480)으로 찍혀서 글자가 뭉개짐
-      // ideal만 쓰면 기기가 지원하는 가장 가까운 해상도로 맞춰줌 (지원 안 해도 에러 안 남)
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 3840 },
-          height: { ideal: 2160 },
-        },
-        audio: false,
-      });
+      stream = await openBackCamera();
       video.srcObject = stream;
 
       const [track] = stream.getVideoTracks();
