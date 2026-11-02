@@ -31,52 +31,6 @@ export function renderPhotoProcessing(container) {
     }
   }
 
-  // 해상도를 안 정하면 브라우저 기본값(보통 640x480)으로 찍혀서 글자가 뭉개짐
-  // ideal만 쓰면 기기가 지원하는 가장 가까운 해상도로 맞춰줌 (지원 안 해도 에러 안 남)
-  const VIDEO_SIZE = { width: { ideal: 3840 }, height: { ideal: 2160 } };
-
-  // 후면 카메라를 연다. 안드로이드는 후면 렌즈(기본/초광각/망원)를 "camera2 0, facing back",
-  // "camera2 2, facing back"처럼 따로따로 보여줘서, facingMode만 주면 브라우저가 초광각을
-  // 고를 수 있다 - 초광각은 자동초점이 없어 가까이 찍은 문제지가 흐려짐(갤럭시에서 실측).
-  // 후면 중 번호가 가장 작은 것(보통 camera2 0 = 기본 카메라)으로 다시 연다.
-  // 아이폰은 "후면 카메라" 하나를 iOS가 알아서 렌즈 전환해주므로 facingMode 그대로 둔다.
-  async function openBackCamera() {
-    let s = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', ...VIDEO_SIZE },
-      audio: false,
-    });
-    try {
-      // 카메라 이름(label)은 권한을 받은 뒤에만 보이므로 한 번 연 다음에 목록을 본다
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const androidBack = devices
-        .filter((d) => d.kind === 'videoinput' && /camera2 \d+.*facing back/i.test(d.label))
-        .map((d) => ({ id: d.deviceId, label: d.label, num: Number(d.label.match(/camera2 (\d+)/i)[1]) }))
-        .sort((a, b) => a.num - b.num);
-      const current = s.getVideoTracks()[0];
-      console.log('📷 후면 카메라 목록:', androidBack.map((d) => d.label), '/ 지금:', current.label);
-      const main = androidBack[0];
-      if (main && current.getSettings().deviceId !== main.id) {
-        s.getTracks().forEach((t) => t.stop());
-        try {
-          s = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: main.id }, ...VIDEO_SIZE },
-            audio: false,
-          });
-          console.log('📷 기본 카메라로 변경:', main.label);
-        } catch (err) {
-          console.warn('기본 카메라 열기 실패 - 브라우저가 고른 후면 카메라 사용:', err);
-          s = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', ...VIDEO_SIZE },
-            audio: false,
-          });
-        }
-      }
-    } catch (err) {
-      console.warn('카메라 목록 확인 실패 - 브라우저가 고른 후면 카메라 사용:', err);
-    }
-    return s;
-  }
-
   async function renderGuide() {
     container.innerHTML = `
       <section class="camera-screen">
@@ -111,7 +65,16 @@ export function renderPhotoProcessing(container) {
     const video = container.querySelector('#camera-video');
 
     try {
-      stream = await openBackCamera();
+      // 해상도를 안 정하면 브라우저 기본값(보통 640x480)으로 찍혀서 글자가 뭉개짐
+      // ideal만 쓰면 기기가 지원하는 가장 가까운 해상도로 맞춰줌 (지원 안 해도 에러 안 남)
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+        },
+        audio: false,
+      });
       video.srcObject = stream;
 
       const [track] = stream.getVideoTracks();
