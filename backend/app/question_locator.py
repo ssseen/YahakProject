@@ -327,6 +327,29 @@ def locate_question(lines: list[Line], finger: tuple[int, int], page_h: int) -> 
     dist = _rect_dist(target.bbox, fx, fy)
     locate_confidence = "low" if dist > median_h * 1.5 else "high"
 
+    # 손끝이 글자에 직접 닿지 않았으면(빈 공간을 짚음) 거리만으로 고르면 옆 컬럼 줄이 더
+    # 가까울 수 있다. 실측 사례(2026-10-26): 14번 보기 아래 빈 공간을 짚었는데 오른쪽
+    # 컬럼 "19." 줄이 143px로 제일 가까워 19번이 나옴(14번 줄들은 316px 이상). 이때는
+    # 손끝 x가 어느 컬럼 영역에 있는지로 컬럼을 먼저 정하고 그 안에서 최근접 줄을 고른다.
+    # 컬럼 경계는 "왼쪽 컬럼 글자 끝"과 "오른쪽 컬럼 시작선"의 중간 - 오른쪽 컬럼 번호를
+    # 그 왼쪽에서 짚어 손끝이 시작선보다 살짝 왼쪽에 와도 오른쪽 컬럼으로 가게 한다.
+    # 손끝이 글자에 닿아 있는데 그 줄이 어느 컬럼에도 없는 경우(385.jpg: Clova가 두 컬럼
+    # 줄을 한 줄로 합쳐 "16." 앵커가 줄 중간에 묻힘)는 여기서 건드리지 않는다 - 손끝 컬럼으로
+    # 돌리면 엉뚱한 17번이 조용히 나왔음. 아래에서 LocateError(다시 찍기)로 가는 게 낫다.
+    if locate_confidence == "low":
+        finger_col = 0
+        for ci in range(1, len(columns)):
+            col_left_i = columns[ci][0]
+            prev_rights = [body_lines[i].bbox[2] for i in columns[ci - 1][1]
+                           if body_lines[i].bbox[2] < col_left_i]
+            boundary = (max(prev_rights) + col_left_i) / 2 if prev_rights else col_left_i
+            if fx >= boundary:
+                finger_col = ci
+        finger_col_lines = columns[finger_col][1]
+        if finger_col_lines and target_i not in finger_col_lines:
+            target_i = min(finger_col_lines, key=lambda i: _rect_dist(body_lines[i].bbox, fx, fy))
+            target = body_lines[target_i]
+
     # target이 속한 컬럼 찾기
     target_col = None
     for col, anchors, col_left in col_anchors:
