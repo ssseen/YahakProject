@@ -4,6 +4,27 @@ import { startLoading, endLoading } from '../loading-guard.js';
 
 const DEBUG_STEPS = ['guide', 'loading', 'success', 'error'];
 
+// 카메라 진단 표시: 주소에 ?camdebug=1 (예: .../YahakProject/?camdebug=1)을 붙였을 때만 화면 위에
+// 카메라 정보를 띄운다. 갤럭시처럼 원격 콘솔을 보기 어려운 폰에서 화질 원인을 찾으려고 넣음.
+// 촬영 동작 자체는 바꾸지 않는다. (# 앞 쿼리라 화면을 옮겨 다녀도 유지됨)
+const CAM_DEBUG = new URLSearchParams(window.location.search).get('camdebug') === '1';
+
+function camDebug(line) {
+  console.log('📷 ' + line);
+  if (!CAM_DEBUG) return;
+  let panel = document.getElementById('cam-debug-panel');
+  if (!panel) {
+    panel = document.createElement('pre');
+    panel.id = 'cam-debug-panel';
+    panel.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;margin:0;'
+      + 'padding:8px;background:rgba(0,0,0,.8);color:#0f0;font:12px/1.4 monospace;white-space:pre-wrap;'
+      + 'z-index:99999;';
+    panel.addEventListener('click', () => panel.remove()); // 누르면 닫힘
+    document.body.appendChild(panel);
+  }
+  panel.textContent += line + '\n';
+}
+
 function getDebugStep() {
   const query = window.location.hash.split('?')[1];
   const step = new URLSearchParams(query).get('step');
@@ -84,8 +105,19 @@ export function renderPhotoProcessing(container) {
         track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
       }
       video.addEventListener('loadedmetadata', () => {
-        console.log(`📷 카메라 해상도: ${video.videoWidth}x${video.videoHeight}`);
+        camDebug(`카메라 해상도: ${video.videoWidth}x${video.videoHeight}`);
       }, { once: true });
+      if (CAM_DEBUG) {
+        camDebug(`기기: ${navigator.userAgent}`);
+        camDebug(`지금 카메라: ${track.label}`);
+        const st = track.getSettings ? track.getSettings() : {};
+        camDebug(`설정: ${st.width}x${st.height} focus=${st.focusMode} zoom=${st.zoom} fps=${st.frameRate}`);
+        camDebug(`지원 focus=${JSON.stringify(capabilities.focusMode)} zoom=${JSON.stringify(capabilities.zoom)} `
+          + `최대=${capabilities.width && capabilities.width.max}x${capabilities.height && capabilities.height.max}`);
+        navigator.mediaDevices.enumerateDevices()
+          .then((ds) => camDebug('카메라 목록: ' + ds.filter((d) => d.kind === 'videoinput').map((d) => d.label).join(' | ')))
+          .catch(() => {});
+      }
 
       if (capabilities.torch) {
         const flashBtn = container.querySelector('#flash-btn');
@@ -125,13 +157,15 @@ export function renderPhotoProcessing(container) {
         const bitmap = await createImageBitmap(photoBlob);
         const videoPortrait = video.videoHeight > video.videoWidth;
         const photoPortrait = bitmap.height > bitmap.width;
-        console.log(`📷 사진 촬영 ${bitmap.width}x${bitmap.height} (영상 ${video.videoWidth}x${video.videoHeight})`);
+        camDebug(`사진 촬영 ${bitmap.width}x${bitmap.height} (영상 ${video.videoWidth}x${video.videoHeight})`);
         if (videoPortrait === photoPortrait) return bitmap;
         // 방향이 화면과 다르게 나오는 기기는 회전 방향을 확신할 수 없으니 영상 프레임으로 대신함
-        console.warn('사진 방향이 화면과 달라 영상 프레임으로 촬영');
+        camDebug('사진 방향이 화면과 달라 영상 프레임으로 촬영');
       } catch (err) {
-        console.warn('사진 촬영 기능 실패 - 영상 프레임으로 촬영:', err);
+        camDebug('사진 촬영 기능 실패 - 영상 프레임으로 촬영: ' + err);
       }
+    } else {
+      camDebug('ImageCapture 없음 - 영상 프레임으로 촬영');
     }
     return video;
   }
@@ -161,6 +195,7 @@ export function renderPhotoProcessing(container) {
     canvas.height = Math.round(ch * scale);
     canvas.getContext('2d').drawImage(src, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
     if (src.close) src.close(); // ImageBitmap 메모리 해제
+    camDebug(`보낸 사진: ${canvas.width}x${canvas.height} (원본 ${sw}x${sh}에서 ${cw}x${ch} 잘라냄)`);
 
     canvas.toBlob((blob) => {
       capturing = false;
