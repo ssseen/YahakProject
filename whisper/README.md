@@ -21,6 +21,16 @@
 
 로컬 백엔드(`backend/app/stt_client.py`)도 이 폴더의 어댑터를 그대로 읽는다.
 
+## 시험지 힌트 프롬프트 (2026-11-03)
+짧은 질문 속 시험 용어를 일상어로 잘못 듣는 문제("빗살무늬 토기" → "비싸 할머니") 대응.
+1. 사진을 찍으면 메인 백엔드가 녹음하는 동안 문항 OCR을 미리 처리한다 (sessionId)
+2. 앱이 녹음 중에 `GET /api/session/{sessionId}/hint`로 문항 낱말(예: `빗살무늬 토기 신석기 청동기`)을 받아 둔다
+3. 녹음이 끝나면 `/transcribe`에 `prompt` 필드로 같이 보낸다 → Whisper `prompt_ids`로 넣음 (앞 120토큰만)
+- 녹음이 끝날 때 힌트가 아직 없으면 기다리지 않고 힌트 없이 보낸다 (지금보다 느려지지 않게)
+- 힌트 때문에 빈 결과가 나오면 힌트 없이 한 번 더 돌린다
+- 끄기: 환경변수 `WHISPER_HINT=0`으로 재배포 (앱 수정 없이 원래대로)
+- 비교 측정: 앱 주소에 `?sttdebug=1` (예: `https://ssseen.github.io/YahakProject/?sttdebug=1`) → 대기 화면에 힌트 사용/없이 결과와 시간이 같이 나옴 (서버가 두 번 돌려서 느려지므로 측정할 때만)
+
 ## Cloud Run 배포 (레포 루트에서)
 ```bash
 gcloud run deploy yahak-stt \

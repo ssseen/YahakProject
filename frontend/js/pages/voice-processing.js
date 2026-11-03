@@ -15,6 +15,10 @@ const STT_BASE = ['localhost', '127.0.0.1'].includes(window.location.hostname)
   ? 'http://localhost:8000'
   : 'https://yahak-stt-815747505478.asia-northeast3.run.app';
 const STT_URL = STT_BASE + '/transcribe';
+// 음성 인식 비교 표시: 주소에 ?sttdebug=1 을 붙이면 힌트 있을 때/없을 때 결과와 시간을 대기 화면에 보여줌
+// (서버가 두 번 돌리므로 그만큼 느려짐 - 측정할 때만)
+const STT_DEBUG = new URLSearchParams(window.location.search).get('sttdebug') === '1';
+const HINT_POLL_MS = 800; // 녹음하는 동안 힌트(시험지 낱말)를 받아 오는 간격
 
 // 로딩 중 "나가기"를 눌렀을 때: 사진/질문 상태를 비우고 메뉴로
 const LEAVE = () => goBack();
@@ -44,6 +48,11 @@ export function renderVoiceProcessing(container) {
   let recognizedText = '';
   let quiz = null; // 기다리는 동안 퀴즈 - 해설이 나왔을 때 퀴즈를 했는지 확인용
   let retakeMessage = ''; // 해설 요청이 retake(사진 다시 찍기)로 끝났을 때 보여줄 서버 안내 문구
+  // 음성 인식 힌트: 사진을 미리 처리한 서버 세션에서 문항 낱말을 받아 Whisper에 같이 보낸다.
+  // 녹음하는 동안만 받아 오고, 녹음이 끝났을 때 아직 없으면 기다리지 않고 힌트 없이 보낸다.
+  let hintText = '';
+  let hintTimer = null;
+  let sttDebug = null; // STT_DEBUG일 때 서버가 준 비교 결과
 
   function render() {
     if (step === 'ready') renderReady();
@@ -95,6 +104,7 @@ export function renderVoiceProcessing(container) {
 
   function stopAudioStream() {
     leftPage = true;
+    stopHintFetch();
     stopSpeaking();
     stopLiveCaption();
     if (animationFrameId) {
@@ -143,6 +153,39 @@ export function renderVoiceProcessing(container) {
     });
   }
 
+  function startHintFetch() {
+    stopHintFetch();
+    hintText = '';
+    const sessionId = getState().photo?.sessionId;
+    if (!sessionId) return;
+    let tries = 0;
+    const poll = async () => {
+      hintTimer = null;
+      tries += 1;
+      try {
+        const res = await fetch(`${API_BASE}/api/session/${encodeURIComponent(sessionId)}/hint`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.ready) {
+            hintText = data.hint || '';
+            return; // 끝 (힌트가 없으면 없는 대로)
+          }
+        } else {
+          return; // 세션 없음(404) 등 - 힌트 없이
+        }
+      } catch (e) {
+        // 네트워크 오류 - 다음에 다시
+      }
+      if (tries < 40 && step === 'recording') hintTimer = setTimeout(poll, HINT_POLL_MS);
+    };
+    poll();
+  }
+
+  function stopHintFetch() {
+    if (hintTimer) clearTimeout(hintTimer);
+    hintTimer = null;
+  }
+
   async function startRecording() {
     stopSpeaking();
     try {
@@ -172,6 +215,7 @@ export function renderVoiceProcessing(container) {
 
     step = 'recording';
     render();
+    startHintFetch();
     startVolumeMeter();
     startLiveCaption();
   }
@@ -263,8 +307,11 @@ export function renderVoiceProcessing(container) {
   async function uploadVoice(blob) {
     const signal = startLoading(LEAVE); // 녹음이 끝나고 처리 시작할 때 1번
 
+    stopHintFetch();
     const formData = new FormData();
     formData.append('audio_file', blob, 'record.webm');
+    if (hintText) formData.append('prompt', hintText);
+    if (STT_DEBUG) formData.append('compare', '1');
 
     let finalText = '';
 
@@ -277,7 +324,8 @@ export function renderVoiceProcessing(container) {
       if (res.ok) {
         const result = await res.json();
         finalText = (result.text || '').trim();
-        console.log('🎯 Whisper 변환 텍스트:', finalText);
+        console.log('🎯 Whisper 변환 텍스트:', finalText, result.hint_used ? '(힌트 사용)' : '(힌트 없음)', result.ms + 'ms');
+        if (STT_DEBUG) sttDebug = result;
       } else {
         console.error('Whisper 서버 오류:', res.status);
       }
@@ -404,6 +452,19 @@ export function renderVoiceProcessing(container) {
     if (!el || !recognizedText) return;
     el.textContent = '질문: "' + recognizedText + '"';
     el.hidden = false;
+    if (STT_DEBUG) showSttDebug(el);
+  }
+
+  function showSttDebug(afterEl) {
+    if (!sttDebug || container.querySelector('#stt-debug')) return;
+    const sec = (ms) => (ms / 1000).toFixed(2) + '초';
+    const lines = [`힌트: ${hintText || '(없음)'}`, `힌트 ${sttDebug.hint_used ? '사용' : '없음'} (${sec(sttDebug.ms)}): ${sttDebug.text}`];
+    if ('text_nohint' in sttDebug) lines.push(`힌트 없이 (${sec(sttDebug.ms_nohint)}): ${sttDebug.text_nohint}`);
+    const pre = document.createElement('pre');
+    pre.id = 'stt-debug';
+    pre.style.cssText = 'white-space:pre-wrap;font-size:12px;line-height:1.5;background:#222;color:#0f0;padding:8px;border-radius:6px;margin:8px 0;text-align:left;';
+    pre.textContent = lines.join('\n');
+    afterEl.after(pre);
   }
 
   function renderError() {

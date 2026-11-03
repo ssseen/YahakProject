@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from vision_processor import analyze_image
 from pipeline import (
     run_pipeline, check_without_finger, warmup_pinecone, start_session, run_session, _retake_response,
+    session_hint,
 )
 from app.stt_client import SttError
 from app.stt_client import preload as preload_stt
@@ -182,6 +183,15 @@ def analyze(req: AnalyzeRequest):
     result["timings"] = {**timings, **result.get("timings", {}),
                          "server_total": round(time.perf_counter() - t_request, 3)}
     print("3. 해설 파이프라인 완료:", result.get("status"))
+    return result
+
+
+@app.get("/api/session/{session_id}/hint")
+def get_session_hint(session_id: str):
+    """음성 인식 힌트: 미리 처리한 문항 글자에서 뽑은 낱말들. 앱이 녹음하는 동안 받아 가서 STT에 넘긴다."""
+    result = session_hint(session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="세션이 없거나 만료됨")
     return result
 
 

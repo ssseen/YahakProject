@@ -414,6 +414,43 @@ def start_session(image_bytes, x, y):
     return session_id
 
 
+# 음성 인식 힌트 (2026-11-03): Whisper가 시험 용어("빗살무늬 토기" -> "비싸 할머니")를 못 알아듣는 문제.
+# 미리 처리한 세션의 문항 OCR 글자에서 낱말만 뽑아 STT 서버에 프롬프트로 넘긴다(앱이 녹음 중에 받아 감).
+# 세션을 꺼내지(pop) 않고 들여다보기만 하므로 해설 요청(run_session)에는 영향 없음.
+_HINT_MAX_CHARS = 250
+_HINT_WORD = re.compile(r"[가-힣A-Za-z]{2,}")
+
+
+def make_stt_hint(text):
+    """문항 글자 -> 겹치지 않는 낱말을 나온 순서대로 띄어 쓴 짧은 문자열 (보기 번호·숫자·기호는 버림)."""
+    seen, words = set(), []
+    for w in _HINT_WORD.findall(text or ""):
+        if w not in seen:
+            seen.add(w)
+            words.append(w)
+    hint = " ".join(words)
+    if len(hint) > _HINT_MAX_CHARS:
+        hint = hint[:_HINT_MAX_CHARS].rsplit(" ", 1)[0]
+    return hint
+
+
+def session_hint(session_id):
+    """
+    세션의 음성 인식 힌트. 세션이 없으면 None.
+    미리 처리가 안 끝났으면 {"ready": False}, 끝났으면 {"ready": True, "hint": str 또는 None(실패)}.
+    """
+    with _SESSIONS_LOCK:
+        entry = _SESSIONS.get(session_id)
+    if entry is None or time.time() - entry["created"] > _SESSION_TTL_SEC:
+        return None
+    if not entry["done"].is_set():
+        return {"ready": False, "hint": None}
+    ctx = entry["ctx"]
+    if entry["fail"] is not None or not ctx:
+        return {"ready": True, "hint": None}
+    return {"ready": True, "hint": make_stt_hint(ctx["locate_result"].query_text) or None}
+
+
 def run_session(session_id, user_question="이 문제 좀 알려줘", user_level=None):
     """
     미리 처리해둔 세션으로 해설을 만든다. 세션이 없거나 만료됐으면 None(호출부가 다시 찍기 안내).
