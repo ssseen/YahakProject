@@ -147,7 +147,7 @@ export function renderPractice(container) {
     // 하단 바 이동 이벤트
     container.querySelector('#nav-home').addEventListener('click', () => {
       resetQuestionFlow();
-      navigate('/');
+      navigate('/menu');
     });
 
     const nextBtn = container.querySelector('#nav-next');

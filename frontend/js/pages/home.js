@@ -24,8 +24,5 @@ export function renderHome(container) {
   `;
 
   container.querySelector('.start-btn').addEventListener('click', () => navigate('/menu'));
-  container.querySelector('.how-to-btn').addEventListener('click', () => {
-    // TODO: 사용방법 화면/모달 연결
-    console.log('사용방법 보기');
-  });
+  container.querySelector('.how-to-btn').addEventListener('click', () => navigate('/howto'));
 }

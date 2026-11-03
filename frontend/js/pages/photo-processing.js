@@ -1,4 +1,4 @@
-import { navigate } from '../router.js';
+import { navigate, goBack } from '../router.js';
 import { getState, setState } from '../state.js';
 import { startLoading, endLoading } from '../loading-guard.js';
 
@@ -32,8 +32,11 @@ function getDebugStep() {
 }
 
 export function renderPhotoProcessing(container) {
-  const pickedPhoto = getState().photo;
-  let step = getDebugStep() || (pickedPhoto && pickedPhoto.blob ? 'loading' : 'guide');
+  // 메뉴에서 갤러리 사진을 고른 경우에만 바로 인식 단계로. 이미 보낸 사진(dataUri 있음)은 다시 보내지 않음
+  // (예전엔 뒤로 가기로 이 화면에 오면 찍었던 사진을 또 보내고 음성 화면으로 넘어갔음)
+  const saved = getState().photo;
+  const pickedPhoto = saved && saved.picked && saved.blob && !saved.dataUri ? saved : null;
+  let step = getDebugStep() || (pickedPhoto ? 'loading' : 'guide');
   let stream = null;
   let torchOn = false;
   let errorMessage = '사진을 인식하지 못했어요.\n다시 찍어주세요';
@@ -127,8 +130,10 @@ export function renderPhotoProcessing(container) {
 
     container.querySelector('#camera-back-btn').addEventListener('click', () => {
       stopStream();
-      window.history.back();
+      goBack();
     });
+    // 폰의 뒤로 가기 등으로 화면을 떠나도 카메라를 끈다
+    window.addEventListener('hashchange', stopStream, { once: true });
 
     const video = container.querySelector('#camera-video');
 
@@ -263,8 +268,8 @@ export function renderPhotoProcessing(container) {
 
   async function uploadPhoto(blob) {
     const signal = startLoading(() => {
-      setState({ photo: null, question: null });
-      window.history.back();
+      stopStream();
+      goBack();
     });
     const next = await analyzePhoto(blob, signal);
     if (next) endLoading(next); // null이면 사용자가 나간 것

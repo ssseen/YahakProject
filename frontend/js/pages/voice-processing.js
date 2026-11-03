@@ -1,4 +1,4 @@
-import { navigate } from '../router.js';
+import { navigate, goBack } from '../router.js';
 import { getState, setState, getUserLevelForRequest } from '../state.js';
 import { renderHeader } from '../components/header.js';
 import { startLoading, endLoading } from '../loading-guard.js';
@@ -16,11 +16,8 @@ const STT_BASE = ['localhost', '127.0.0.1'].includes(window.location.hostname)
   : 'https://yahak-stt-815747505478.asia-northeast3.run.app';
 const STT_URL = STT_BASE + '/transcribe';
 
-// 로딩 중 "나가기"를 눌렀을 때: 사진/질문 상태를 비우고 이전 화면으로
-const LEAVE = () => {
-  setState({ photo: null, question: null });
-  window.history.back();
-};
+// 로딩 중 "나가기"를 눌렀을 때: 사진/질문 상태를 비우고 메뉴로
+const LEAVE = () => goBack();
 
 function getDebugStep() {
   const query = window.location.hash.split('?')[1];
@@ -257,7 +254,7 @@ export function renderVoiceProcessing(container) {
       headerRoot.appendChild(renderHeader({
         onBack: () => {
           stopAudioStream();
-          window.history.back();
+          goBack();
         },
       }));
     }
@@ -427,7 +424,10 @@ export function renderVoiceProcessing(container) {
       step = 'ready';
       render();
     });
-    container.querySelector('#home-btn').addEventListener('click', () => navigate('/'));
+    container.querySelector('#home-btn').addEventListener('click', () => {
+      setState({ photo: null, question: null });
+      navigate('/menu');
+    });
   }
 
   // 해설 요청이 retake로 끝났을 때: 사진을 다시 찍어야 하므로 카메라로 돌려보낸다
@@ -445,7 +445,10 @@ export function renderVoiceProcessing(container) {
       setState({ photo: null, question: null });
       navigate('/camera');
     });
-    container.querySelector('#home-btn').addEventListener('click', () => navigate('/'));
+    container.querySelector('#home-btn').addEventListener('click', () => {
+      setState({ photo: null, question: null });
+      navigate('/menu');
+    });
   }
 
   render();

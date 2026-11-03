@@ -34,10 +34,8 @@ export function renderMenu(container) {
   container.querySelector('#file-input').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    setState({ photo: { blob: file, previewUrl: URL.createObjectURL(file) } });
+    setState({ photo: { blob: file, previewUrl: URL.createObjectURL(file), picked: true } });
     navigate('/camera'); // photo-processing.js가 이미 사진이 있는 걸 보고 카메라 없이 바로 인식 단계로 넘어감
   });
-  container.querySelector('#how-to-btn').addEventListener('click', () => {
-    console.log('사용방법 보기');
-  });
+  container.querySelector('#how-to-btn').addEventListener('click', () => navigate('/howto'));
 }

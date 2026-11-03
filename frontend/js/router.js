@@ -5,6 +5,8 @@ import { renderVoiceProcessing } from './pages/voice-processing.js';
 import { renderSolve } from './pages/solve.js';
 import { renderHeader } from './components/header.js';
 import { renderPractice } from './pages/practice.js';
+import { renderHowto } from './pages/howto.js';
+import { resetQuestionFlow } from './state.js';
 
 // 경로별 렌더 함수 + 헤더 표시 여부 + css 파일명
 const routes = {
@@ -14,10 +16,23 @@ const routes = {
   '/voice': { render: renderVoiceProcessing, css: 'voice', showHeader: true },
   '/solve': { render: renderSolve, css: 'solve', showHeader: true },
   '/practice': { render: renderPractice, css: 'solve', showHeader: true },
+  '/howto': { render: renderHowto, css: 'howto', showHeader: true },
 };
 
+// '뒤로 가기' 버튼이 갈 화면 (브라우저 기록 대신 고정된 이전 화면으로 이동)
+// 예전엔 history.back()이라 해설 화면 -> 음성 화면 -> 카메라 화면(이미 찍은 사진을 또 보내고
+// 다시 음성 화면으로 넘어감)처럼 끝난 단계를 다시 실행해서 에러가 났음
+const BACK_TARGET = {
+  '/menu': '/',
+  '/camera': '/menu',
+  '/voice': '/menu',
+  '/solve': '/menu',
+  '/practice': '/solve',
+};
+let howtoReturnPath = '/'; // 사용방법은 열었던 화면(첫 화면/메뉴)으로 돌아감
+
 // 뒤로가기 판단을 위한 경로 순서 (숫자가 클수록 "더 깊은" 화면)
-const routeOrder = ['/', '/menu', '/camera', '/voice', '/solve'];
+const routeOrder = ['/', '/howto', '/menu', '/camera', '/voice', '/solve', '/practice'];
 
 let currentPath = '/';
 let currentCssLink = null;
@@ -36,6 +51,13 @@ export function navigate(path) {
   window.location.hash = `#${path}`;
 }
 
+// 고정된 이전 화면으로 이동. 기록을 쌓지 않도록 replace 사용
+export function goBack() {
+  const target = currentPath === '/howto' ? howtoReturnPath : (BACK_TARGET[currentPath] || '/');
+  if (target === '/' || target === '/menu') resetQuestionFlow(); // 문제 흐름을 벗어나면 사진/해설 비우기
+  window.location.replace(`#${target}`);
+}
+
 function router() {
   const app = document.getElementById('app');
   const headerRoot = document.getElementById('header-root');
@@ -45,13 +67,16 @@ function router() {
 
   // 방향 판단: 더 깊은 화면으로 가면 오른쪽에서, 얕은 화면으로 돌아가면 왼쪽에서 슬라이드
   const goingForward = routeOrder.indexOf(nextPath) >= routeOrder.indexOf(currentPath);
+  if (nextPath === '/howto' && currentPath !== '/howto') {
+    howtoReturnPath = currentPath === '/menu' ? '/menu' : '/';
+  }
   currentPath = nextPath;
 
   loadPageCSS(route.css);
 
   headerRoot.innerHTML = '';
   if (route.showHeader) {
-    headerRoot.appendChild(renderHeader({ onBack: () => window.history.back() }));
+    headerRoot.appendChild(renderHeader({ onBack: goBack }));
   }
 
   app.classList.remove('page-enter-right', 'page-enter-left');

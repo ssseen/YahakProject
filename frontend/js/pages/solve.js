@@ -79,10 +79,8 @@ export function renderSolve(container) {
   const data = state.question;
 
   if (!data) {
-    container.innerHTML = `
-      <div style="text-align:center; padding:120px 0; color:var(--color-text-muted); font-size:0.8rem;">
-        문제 데이터를 불러오는 중입니다...
-      </div>`;
+    // 해설이 없으면(처음으로 누른 뒤 폰 뒤로 가기 등) 계속 "불러오는 중"에 멈추지 않게 메뉴로
+    window.location.replace('#/menu');
     return;
   }
 
@@ -258,7 +256,7 @@ export function renderSolve(container) {
     stopTts(true);
     unsubscribe();
     resetQuestionFlow();
-    navigate('/');
+    navigate('/menu'); // 처음으로 = 새 문제 고르는 메뉴
   });
 
   playToggleBtn.addEventListener('click', () => {
