@@ -119,6 +119,14 @@
 .lookup-word:active {
   opacity: 0.6;
 }
+/* 사용자가 누른 단어만 표시 - 무슨 단어를 눌렀는지 알 수 있게 (마지막으로 누른 하나만).
+   해설 읽기 하이라이트(노랑)와 헷갈리지 않게 파랑 계열 */
+.lookup-word.picked {
+  background-color: #AFC6FF;
+  box-shadow: 0 0 0 2px #AFC6FF; /* 글자 양옆 여유 - 줄 높이는 그대로 */
+  border-radius: 3px;
+  font-weight: var(--font-weight-bold);
+}
 
 /* ===== 단어 팝업 시트 ===== */
 .word-popup-header {

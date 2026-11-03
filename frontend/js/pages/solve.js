@@ -131,6 +131,9 @@ export function renderSolve(container) {
 
   container.querySelectorAll('.lookup-word').forEach((el) => {
     el.addEventListener('click', () => {
+      // 누른 단어만 하이라이트 (이전에 누른 단어는 지움). 팝업을 닫아도 남겨 둬서 어디까지 봤는지 알 수 있게
+      container.querySelectorAll('.lookup-word.picked').forEach((w) => w.classList.remove('picked'));
+      el.classList.add('picked');
       openWordPopup({ word: el.dataset.word, meaning: el.dataset.meaning });
     });
   });
