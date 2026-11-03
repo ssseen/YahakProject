@@ -5,8 +5,8 @@ import { speak, stopSpeaking } from '../tts.js';
 const STEPS = [
   {
     title: '문제 사진 찍기',
-    body: "'문제 사진 찍기'를 누르세요. 모르는 문제를 손가락으로 짚은 채로, 네모 칸 안에 문제가 들어오게 찍어요.",
-    tip: '밝은 곳에서 찍으면 더 잘 알아봐요. 미리 찍어 둔 사진은 \'문제 사진 가져오기\'로 불러와요.',
+    body: "'문제 사진 찍기'를 누르세요. 모르는 문제를 손가락으로 짚은 채로, 네모\u00A0칸 안에 문제가 들어오게 찍어요.",
+    tip: "밝은 곳에서 찍으면 더 잘 알아봐요. 미리 찍어 둔 사진은 '문제 사진 가져오기'로 불러와요.",
   },
   {
     title: '말로 물어보기',
@@ -30,6 +30,11 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// 화면에 보일 때만: 따옴표로 묶은 버튼 이름('문제 사진 찍기' 등)은 중간에서 줄이 안 갈리게
+function keepQuoted(s) {
+  return s.replace(/'[^']+'/g, (m) => m.replace(/ /g, '\u00A0'));
+}
+
 function fullText() {
   const steps = STEPS.map((s, i) => `${i + 1}번, ${s.title}. ${s.body} ${s.tip}`).join(' ');
   return `검고심 사용방법입니다. ${steps} ${SETTINGS_TEXT}`;
@@ -47,12 +52,12 @@ export function renderHowto(container) {
       <ol class="howto-steps" hidden>
         ${STEPS.map((s, i) => `
           <li class="howto-step">
-            <span class="howto-num">${i + 1}</span>
-            <div class="howto-text">
+            <div class="howto-step-head">
+              <span class="howto-num">${i + 1}</span>
               <h2>${escapeHtml(s.title)}</h2>
-              <p>${escapeHtml(s.body)}</p>
-              <p class="howto-tip">${escapeHtml(s.tip)}</p>
             </div>
+            <p>${escapeHtml(keepQuoted(s.body))}</p>
+            <p class="howto-tip">${escapeHtml(keepQuoted(s.tip))}</p>
           </li>
         `).join('')}
       </ol>

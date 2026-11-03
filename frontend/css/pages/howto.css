@@ -45,12 +45,19 @@
 }
 
 .howto-step {
+  /* 번호+제목은 한 줄, 설명은 카드 폭 전체를 써서 줄바꿈이 덜 어색하게 */
   display: flex;
-  gap: 12px;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
   background: var(--color-question-bg);
   border-radius: var(--radius-lg);
-  padding: 16px 14px;
+  padding: 16px;
+}
+
+.howto-step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .howto-num {
@@ -66,19 +73,17 @@
   justify-content: center;
 }
 
-.howto-text h2 {
+.howto-step h2 {
   font-size: 1.05rem;
   font-weight: 800;
-  margin-bottom: 4px;
 }
 
-.howto-text p {
+.howto-step p {
   font-size: 0.85rem;
   line-height: 1.6;
 }
 
 .howto-tip {
-  margin-top: 6px;
   color: var(--color-text-muted);
 }
 

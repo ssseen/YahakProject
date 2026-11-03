@@ -121,8 +121,10 @@ button {
 
 /* --- 설정 버튼 (크기 확대) --- */
 .settings-btn {
-  width: 82px;
-  height: 36px;
+  /* 고정 높이 36px였을 때 글자 크기를 키우면 납작해 보여서, 글자에 맞춰 커지게 (손가락 터치 최소 44px) */
+  min-width: 82px;
+  min-height: 44px;
+  padding: 6px 16px;
   display: flex;
   align-items: center;
   justify-content: center;
