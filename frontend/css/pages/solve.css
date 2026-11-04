@@ -128,6 +128,13 @@
   font-weight: var(--font-weight-bold);
 }
 
+/* 시험지에 밑줄 친 부분 - 안쪽 단어(.lookup-word)는 밑줄 없음이지만, 바깥 <u>의 밑줄은 그대로 보임 */
+.exam-underline {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
 /* ===== 단어 팝업 시트 ===== */
 .word-popup-header {
   display: flex;

@@ -7,10 +7,12 @@ function assembleTokens(tokens) {
   if (!tokens || tokens.length === 0) return '';
   return tokens
     .map((tok) => {
+      let html = escapeHtml(tok.text);
       if (tok.meaning) {
-        return '<span class="lookup-word" data-word="' + escapeHtml(tok.text) + '" data-meaning="' + escapeHtml(tok.meaning) + '">' + escapeHtml(tok.text) + '</span>';
+        html = '<span class="lookup-word" data-word="' + escapeHtml(tok.text) + '" data-meaning="' + escapeHtml(tok.meaning) + '">' + html + '</span>';
       }
-      return escapeHtml(tok.text);
+      // 시험지에 밑줄 친 부분 ("밑줄 친 it이 가리키는 것은?" 같은 문제)
+      return tok.underline ? '<u class="exam-underline">' + html + '</u>' : html;
     })
     .join('');
 }

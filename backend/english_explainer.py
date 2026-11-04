@@ -65,9 +65,13 @@ _BASE_PROMPT_TEMPLATE = """
 - passage_text/options는 절대 지어내거나 의역하지 말고, 풀이한 문제의 글자를 이미지에 인쇄된
   그대로(오타·철자까지) 옮겨 적으세요. 다만 문항 번호("13.")나 보기 마커(①②③④)는 빼고
   본문 내용만 적으세요.
+- passage_text/options를 옮길 때 이미지에서 밑줄이 그어진 부분은 <u>와 </u>로 감싸세요.
+  예: "He said <u>it</u> was painted by his grandfather."
+  밑줄이 없는 부분에는 절대 붙이지 말고, translation/option_translations/explanation_text/
+  vocabulary에는 <u> 표시를 쓰지 마세요.
 
 {{
-  "passage_text": "풀이한 문제의 지문/발문 원문을 이미지에 보이는 그대로 옮겨 적으세요 (보기 ①②③④는 제외). 절대 지어내거나 요약하지 말고 있는 그대로만 옮기세요.",
+  "passage_text": "풀이한 문제의 지문/발문 원문을 이미지에 보이는 그대로 옮겨 적으세요 (보기 ①②③④는 제외, 밑줄 친 부분은 <u></u>로 감싸기). 절대 지어내거나 요약하지 말고 있는 그대로만 옮기세요.",
   "options": [{{"no": 1, "text": "보기 ①번 원문 (마커 기호 제외)"}}, {{"no": 2, "text": "..."}}, {{"no": 3, "text": "..."}}, {{"no": 4, "text": "..."}}],
   "translation": "지문 전체를 쉬운 우리말로 자연스럽게 번역",
   "option_translations": {{"1": "보기 1번을 쉬운 우리말로 번역", "2": "...", "3": "...", "4": "..."}},
@@ -143,6 +147,36 @@ def _tokenize(text):
     return _TOKEN_RE.findall(text or "")
 
 
+# Gemini가 밑줄 친 부분을 <u>...</u>로 감싸서 준다 (2026-11-04, 12번 "밑줄 친 it" 문제에서
+# 화면에 밑줄이 안 보이던 문제). 태그는 text에서 빼고, 밑줄 위치는 토큰의 underline으로만 전달한다
+# - text에 태그가 남으면 단어 뜻 매칭이 깨지고, 아직 배포 안 된 프론트에는 "<u>"가 글자로 보이기 때문.
+_UNDERLINE_RE = re.compile(r"<u>(.*?)</u>", re.IGNORECASE | re.DOTALL)
+_STRAY_TAG_RE = re.compile(r"</?u>", re.IGNORECASE)
+
+
+def _split_underline(text):
+    """'He said <u>it</u> was' -> ('He said it was', [("He said ", False), ("it", True), (" was", False)])"""
+    segments = []
+    pos = 0
+    for m in _UNDERLINE_RE.finditer(text or ""):
+        if m.start() > pos:
+            segments.append((text[pos:m.start()], False))
+        segments.append((m.group(1), True))
+        pos = m.end()
+    if pos < len(text or ""):
+        segments.append((text[pos:], False))
+    # 짝이 안 맞는 태그 조각은 버린다
+    segments = [(_STRAY_TAG_RE.sub("", s), u) for s, u in segments]
+    return "".join(s for s, _ in segments), segments
+
+
+def _tokenize_marked(text):
+    """<u> 표시가 있는 텍스트 -> (태그 뺀 원문, [(토큰, 밑줄 여부), ...])"""
+    plain, segments = _split_underline(text)
+    tokens = [(tok, u) for seg, u in segments for tok in _tokenize(seg)]
+    return plain, tokens
+
+
 def _match_tokens(tokens, vocab_lower, matched_keys):
     """
     vocab_lower(소문자로 변환된 vocabulary dict)를 토큰에 매칭해서
@@ -156,14 +190,18 @@ def _match_tokens(tokens, vocab_lower, matched_keys):
     _warn_unmatched_vocabulary로 한 번만 판단한다.
     """
     result = []
-    for tok in tokens:
+    for item in tokens:
+        tok, underline = item if isinstance(item, tuple) else (item, False)
         meaning = None
         if _WORD_RE.fullmatch(tok):
             key = tok.lower()
             if key in vocab_lower:
                 meaning = vocab_lower[key]
                 matched_keys.add(key)
-        result.append({"text": tok, "meaning": meaning})
+        token = {"text": tok, "meaning": meaning}
+        if underline:
+            token["underline"] = True
+        result.append(token)
     return result
 
 
@@ -246,18 +284,19 @@ def explain_english(ocr_result, classification, marked_image=None, user_question
     vocab_lower = {k.lower(): v for k, v in (parsed.get("vocabulary") or {}).items()}
     matched_keys = set()
 
-    passage_tokens = _match_tokens(_tokenize(final_passage), vocab_lower, matched_keys)
+    final_passage, passage_marked = _tokenize_marked(final_passage)
+    passage_tokens = _match_tokens(passage_marked, vocab_lower, matched_keys)
 
     option_translations = parsed.get("option_translations") or {}
     options_out = []
     translation_options_out = []
     for opt in final_options_in:
         no = opt.get("no")
-        text = opt.get("text", "") or ""
+        text, opt_marked = _tokenize_marked(opt.get("text", "") or "")
         options_out.append({
             "no": no,
             "text": text,
-            "tokens": _match_tokens(_tokenize(text), vocab_lower, matched_keys),
+            "tokens": _match_tokens(opt_marked, vocab_lower, matched_keys),
         })
         translation_options_out.append({
             "no": no,

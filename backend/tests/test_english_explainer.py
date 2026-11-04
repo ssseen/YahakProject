@@ -64,3 +64,28 @@ def test_falls_back_to_ocr_options_when_gemini_gives_empty_list():
         result = english_explainer.explain_english(ocr_result, {"과목": "영어"})
 
     assert result["options"][0]["text"] == "OCR 보기"
+
+
+def test_underlined_words_become_underline_tokens_and_tags_are_removed():
+    # 12번 "밑줄 친 it이 공통으로 가리키는 것은?" - 화면에 밑줄이 안 보이던 문제 (2026-11-04)
+    gemini_response = {
+        "passage_text": "He said <u>it</u> was painted. I now hang <u>it</u> above my desk.",
+        "options": [{"no": 1, "text": "father"}, {"no": 2, "text": "<u>old painting</u>"}],
+        "translation": "번역", "option_translations": {}, "vocabulary": {"it": "그것", "painting": "그림"},
+        "answer": "2", "explanation_text": "해설", "question_number": 12,
+    }
+    with patch.object(english_explainer, "get_model", return_value=_fake_model(gemini_response)):
+        result = english_explainer.explain_english({}, {"과목": "영어"})
+
+    assert result["passage"]["text"] == "He said it was painted. I now hang it above my desk."
+    underlined = [t for t in result["passage"]["tokens"] if t.get("underline")]
+    assert [t["text"] for t in underlined] == ["it", "it"]
+    assert all(t["meaning"] == "그것" for t in underlined)  # 밑줄 단어도 뜻 팝업 유지
+    assert "".join(t["text"] for t in result["passage"]["tokens"]) == result["passage"]["text"]
+    assert result["options"][1]["text"] == "old painting"
+    assert [t["text"] for t in result["options"][1]["tokens"] if t.get("underline")] == ["old", " ", "painting"]
+
+
+def test_unmatched_underline_tag_is_dropped():
+    plain, _ = english_explainer._split_underline("a <u>broken tag here")
+    assert plain == "a broken tag here"

@@ -1,5 +1,4 @@
 import { navigate } from '../router.js';
-import { openSettingsModal } from '../components/settings-modal.js';
 
 export function renderHome(container) {
   container.innerHTML = `
