@@ -1,16 +1,54 @@
 .howto-screen {
   word-break: keep-all; /* 한글이 낱말 중간에서 줄바꿈되지 않게 */
   margin-top: -10px; /* #app 위쪽 패딩 상쇄 (menu.css와 같음) */
-  padding: var(--header-height) 16px 40px;
+  padding: var(--header-height) 16px 20px;
+  /* 화면 높이에 딱 맞춤: 그림이 남는 공간만큼만 커져서 버튼이 화면 밖으로 안 밀려남 */
+  height: calc(100dvh - 50px); /* #app 위아래 패딩(30+30)에서 margin-top -10 뺀 만큼 */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
 }
 
 .howto-title {
-  font-size: 1.6rem;
+  font-size: 1.4rem;
   font-weight: 800;
+}
+
+.howto-loading {
+  color: var(--color-text-muted);
+}
+
+/* ===== 한 장 영역: 그림이 스크롤 없이 한 화면에 보이게 높이 제한 (아래 버튼 자리를 뺀 만큼) ===== */
+.howto-page {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto; /* 글 안내 카드가 길면 이 안에서만 스크롤 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* 그림 아래 설명 (IMAGE_TEXT). 글자 크기 설정을 따라감 */
+.howto-caption {
+  flex: none;
+  width: 100%;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.howto-image {
+  display: block;
+  width: 100%;
+  flex: 1 1 0;
+  min-height: 160px;
+  object-fit: contain; /* 비율 그대로, 남는 공간에 맞춰 줄어듦 */
+  border-radius: var(--radius-lg);
 }
 
 .howto-listen {
@@ -24,28 +62,68 @@
   cursor: pointer;
 }
 
-.howto-image {
-  display: block;
-  width: 100%;
-  height: auto; /* 원래 비율 그대로, 길면 화면을 내려서 봄 */
-  border-radius: var(--radius-lg);
-}
-
-.howto-steps[hidden],
-.howto-settings[hidden] {
+.howto-listen[hidden] {
   display: none;
 }
 
-.howto-steps {
-  list-style: none;
+.howto-meta {
   width: 100%;
+  flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
 
+.howto-count {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+/* ===== 이전 / 다음 ===== */
+.howto-nav {
+  width: 100%;
+  flex: none;
+  display: flex;
+  gap: 12px;
+}
+
+.howto-prev,
+.howto-next {
+  flex: 1;
+  min-height: 64px;
+  border-radius: 34px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25);
+}
+
+.howto-prev {
+  background: #FFFFFF;
+  border: 1px solid var(--color-border-set);
+  color: #3961C8;
+}
+
+.howto-next {
+  background-color: #5A81E5;
+  border: 1px solid #DBDFE4;
+  color: #FFFFFF;
+}
+
+.howto-next.is-start {
+  background-color: #3961C8;
+}
+
+.howto-prev:active,
+.howto-next:active {
+  transform: scale(0.97);
+}
+
+/* ===== 그림이 없을 때 보여 주는 글 안내 카드 ===== */
 .howto-step {
-  /* 번호+제목은 한 줄, 설명은 카드 폭 전체를 써서 줄바꿈이 덜 어색하게 */
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -85,26 +163,4 @@
 
 .howto-tip {
   color: var(--color-text-muted);
-}
-
-.howto-settings {
-  width: 100%;
-  font-size: 0.85rem;
-  line-height: 1.6;
-  text-align: center;
-  color: var(--color-text-muted);
-}
-
-.howto-start {
-  width: 310px;
-  max-width: 100%;
-  min-height: 70px;
-  border-radius: 34px;
-  background-color: #5A81E5;
-  border: 1px solid #DBDFE4;
-  box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.25);
-  color: #FFFFFF;
-  font-size: 1.3rem;
-  font-weight: 700;
-  cursor: pointer;
 }
