@@ -48,6 +48,8 @@
   flex: 1 1 0;
   min-height: 160px;
   object-fit: contain; /* 비율 그대로, 남는 공간에 맞춰 줄어듦 */
+  /* 그림의 흰 바탕을 화면 바탕색(아이보리)에 녹여서 흰 네모가 안 보이게. 다른 색은 거의 그대로 */
+  mix-blend-mode: multiply;
   border-radius: var(--radius-lg);
 }
 
@@ -163,4 +165,14 @@
 
 .howto-tip {
   color: var(--color-text-muted);
+}
+
+/* 화면에는 안 보이고 화면 읽기 프로그램만 읽는 제목 (그림 자리를 넓히려고 '사용방법' 제목 숨김) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
