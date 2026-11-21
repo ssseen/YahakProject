@@ -24,15 +24,16 @@ const HINT_POLL_MS = 800; // 녹음하는 동안 힌트(시험지 낱말)를 받
 const MIC_DEBUG = new URLSearchParams(window.location.search).get('micdebug') === '1';
 // 아이폰/아이패드(iOS는 크롬도 사파리 엔진): 실시간 자막(음성인식)이 녹음기와 마이크를 동시에 쓰면
 // 가끔 자막 쪽이 마이크를 가져가 녹음이 0 bytes가 됨 (2026-11-21 ?micdebug=1로 확인: 마이크 정상 열림 +
-// 자막 시작됨 + 녹음 0조각). 그래서 iOS에서는 녹음 중 실시간 자막을 끈다.
-// 시험용: ?caption=1 이면 iOS에서도 예전처럼 바로 켬,
-//        ?caption=late 면 녹음기가 첫 소리 조각을 실제로 받은 뒤에 자막을 켬
-//        (녹음기가 먼저 마이크를 잡게 해서 충돌이 없어지는지 확인용 - 진단 패널에 자막 전/후 녹음량이 찍힘)
+// 자막 시작됨 + 녹음 0조각).
+// 그래서 iOS에서는 "늦게 켜기": 녹음기가 실제로 소리를 받기 시작한 걸 확인한 뒤(소리 막대에 소리가 잡히거나
+// 첫 녹음 조각) 자막을 켠다 - 녹음기가 먼저 마이크를 잡아두면 자막이 나중에 켜져도 녹음을 안 뺏음(실측 확인).
+// 안드로이드/PC는 충돌이 없어서(30일 로그 실패 0) 예전처럼 바로 켠다.
+// 주소 옵션: ?caption=off 자막 끔 / ?caption=1 iOS에서도 바로 켬(충돌 재현용) / ?caption=late 모든 기기 늦게 켜기
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const CAPTION_PARAM = new URLSearchParams(window.location.search).get('caption');
-const LATE_CAPTION = CAPTION_PARAM === 'late';
-const LIVE_CAPTION = LATE_CAPTION || !IS_IOS || CAPTION_PARAM === '1';
+const LIVE_CAPTION = CAPTION_PARAM !== 'off';
+const LATE_CAPTION = LIVE_CAPTION && (CAPTION_PARAM === 'late' || (IS_IOS && CAPTION_PARAM !== '1'));
 
 function micDebug(line) {
   console.log('🎤 ' + line);
@@ -252,7 +253,7 @@ export function renderVoiceProcessing(container) {
     throw new Error('마이크가 소리를 받지 못함(muted)');
   }
 
-  // 늦게 켜기(?caption=late): 마이크 소리가 실제로 흐르기 시작한 걸 확인한 다음에 자막을 켠다.
+  // 늦게 켜기(iOS 기본, 다른 기기는 ?caption=late): 마이크 소리가 실제로 흐르기 시작한 걸 확인한 다음에 자막을 켠다.
   // 확인 신호는 둘 중 먼저 오는 것 - 소리 막대에 소리가 잡힘(~0.1초) 또는 녹음기 첫 조각(~0.1초 단위)
   function maybeStartLateCaption(reason) {
     if (!LATE_CAPTION || captionStartedAt || step !== 'recording') return;
@@ -335,9 +336,9 @@ export function renderVoiceProcessing(container) {
     render();
     startHintFetch();
     startVolumeMeter();
-    if (LATE_CAPTION) micDebug('자막은 녹음 첫 조각을 받은 뒤 켬 (caption=late)');
+    if (LATE_CAPTION) micDebug('자막은 녹음 첫 조각을 받은 뒤 켬 (늦게 켜기)');
     else if (LIVE_CAPTION) startLiveCaption();
-    else micDebug('실시간 자막 끔 (iOS - 녹음과 마이크 충돌 방지)');
+    else micDebug('실시간 자막 끔 (caption=off)');
   }
 
   function startVolumeMeter() {
