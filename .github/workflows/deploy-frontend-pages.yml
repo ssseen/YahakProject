@@ -18,10 +18,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # 업로드(build)와 배포(deploy)를 다른 job으로 나눈다 (GitHub 공식 예시 구조).
+  # 한 job 안에서 업로드 직후 바로 배포하면 GitHub이 방금 올린 아티팩트를 아직 못 찾아
+  # "No artifacts named github-pages" 로 가끔 실패했음 (2026-11-21, 액션 버전을 올려도 재발)
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -29,5 +29,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: frontend
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v5
