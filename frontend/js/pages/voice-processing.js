@@ -22,6 +22,12 @@ const HINT_POLL_MS = 800; // 녹음하는 동안 힌트(시험지 낱말)를 받
 // 마이크 진단 표시: 주소에 ?micdebug=1 을 붙이면 마이크 상태(트랙 muted, 소리 크기, 자막 오류, 녹음 크기)를 화면 아래에 띄움
 // (아이폰에서 두 번째 질문부터 마이크가 소리를 못 받는 문제 원인 확인용)
 const MIC_DEBUG = new URLSearchParams(window.location.search).get('micdebug') === '1';
+// 아이폰/아이패드(iOS는 크롬도 사파리 엔진): 실시간 자막(음성인식)이 녹음기와 마이크를 동시에 쓰면
+// 가끔 자막 쪽이 마이크를 가져가 녹음이 0 bytes가 됨 (2026-11-21 ?micdebug=1로 확인: 마이크 정상 열림 +
+// 자막 시작됨 + 녹음 0조각). 그래서 iOS에서는 녹음 중 실시간 자막을 끈다. 비교용으로 ?caption=1이면 강제로 켬
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const LIVE_CAPTION = !IS_IOS || new URLSearchParams(window.location.search).get('caption') === '1';
 
 function micDebug(line) {
   console.log('🎤 ' + line);
@@ -237,9 +243,17 @@ export function renderVoiceProcessing(container) {
 
   async function startRecording() {
     stopSpeaking();
+    // 소리 막대용 AudioContext는 버튼을 누른 그 순간(await 전)에 만들어야 아이폰에서 멈춤(suspended) 상태가 안 됨
+    try {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioContext.resume().catch(() => {});
+    } catch (e) {
+      audioContext = null;
+    }
     try {
       stream = await openMic();
     } catch (err) {
+      if (audioContext) { audioContext.close(); audioContext = null; }
       micDebug('마이크 접근 실패: ' + err);
       step = 'error';
       render();
@@ -260,7 +274,10 @@ export function renderVoiceProcessing(container) {
 
     peakLevel = 0;
     rec.addEventListener('dataavailable', (e) => {
-      if (e.data.size > 0) audioChunks.push(e.data);
+      if (e.data.size > 0) {
+        if (!audioChunks.length) micDebug(`첫 녹음 조각 받음 (${e.data.size} bytes, ${e.data.type})`);
+        audioChunks.push(e.data);
+      }
     });
 
     rec.addEventListener('stop', () => {
@@ -282,13 +299,12 @@ export function renderVoiceProcessing(container) {
     render();
     startHintFetch();
     startVolumeMeter();
-    startLiveCaption();
+    if (LIVE_CAPTION) startLiveCaption();
+    else micDebug('실시간 자막 끔 (iOS - 녹음과 마이크 충돌 방지)');
   }
 
   function startVolumeMeter() {
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    // 아이폰은 터치 직후가 아닌 시점(마이크 권한 await 뒤)에 만든 AudioContext가 멈춘(suspended) 상태로 시작함
-    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+    if (!audioContext) return; // AudioContext를 못 만든 기기 - 막대 없이 녹음만
     micDebug('소리 막대 AudioContext: ' + audioContext.state);
     const source = audioContext.createMediaStreamSource(stream);
     analyser = audioContext.createAnalyser();
@@ -325,7 +341,7 @@ export function renderVoiceProcessing(container) {
           ${barsHtml}
         </div>
         <p id="live-caption" style="min-height: 48px; margin: 12px 24px; padding: 10px 14px; background: #F5F5F5; border-radius: 10px; font-size: 0.85rem; color: var(--color-text-muted); text-align: center; word-break: keep-all;">
-          말씀하시는 내용이 여기에 실시간으로 표시됩니다...
+          ${LIVE_CAPTION ? '말씀하시는 내용이 여기에 실시간으로 표시됩니다...' : '듣고 있어요. 편하게 말씀해 주세요.'}
         </p>
         <button class="stop-btn" id="stop-btn" type="button" aria-label="녹음 종료">
           <img src="image/stop_btn.svg" alt="" aria-hidden="true" class="stop-icon" />
