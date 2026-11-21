@@ -7,7 +7,8 @@ const DEBUG_STEPS = ['guide', 'loading', 'success', 'error'];
 // 카메라 진단 표시: 주소에 ?camdebug=1 (예: .../YahakProject/?camdebug=1)을 붙였을 때만 화면 위에
 // 카메라 정보를 띄운다. 갤럭시처럼 원격 콘솔을 보기 어려운 폰에서 화질 원인을 찾으려고 넣음.
 // 촬영 동작 자체는 바꾸지 않는다. (# 앞 쿼리라 화면을 옮겨 다녀도 유지됨)
-const CAM_DEBUG = new URLSearchParams(window.location.search).get('camdebug') === '1';
+// ?micdebug=1(음성 진단)일 때도 같이 띄운다 - 음성 시험 중 카메라가 안 열리는 원인도 같이 보려고
+const CAM_DEBUG = ['camdebug', 'micdebug'].some((k) => new URLSearchParams(window.location.search).get(k) === '1');
 
 function camDebug(line) {
   console.log('📷 ' + line);
@@ -138,7 +139,16 @@ export function renderPhotoProcessing(container) {
     const video = container.querySelector('#camera-video');
 
     try {
-      stream = await openBackCamera();
+      try {
+        stream = await openBackCamera();
+      } catch (err) {
+        // 아이폰: 바로 전 화면의 마이크/음성인식이 아직 장치를 놓는 중이면 카메라 열기가 한 번 실패할 수 있어 잠깐 뒤 한 번 더
+        camDebug(`카메라 열기 실패(1번째): ${err && err.name} ${err && err.message}`);
+        if (err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')) throw err;
+        await new Promise((r) => setTimeout(r, 600));
+        stream = await openBackCamera();
+        camDebug('카메라 다시 열기 성공');
+      }
       video.srcObject = stream;
 
       const [track] = stream.getVideoTracks();
@@ -177,6 +187,11 @@ export function renderPhotoProcessing(container) {
       }
     } catch (err) {
       console.error('카메라 접근 실패:', err);
+      camDebug(`카메라 접근 실패: ${err && err.name} ${err && err.message}`);
+      // 예전엔 기본 문구("사진을 인식하지 못했어요")가 떠서 사진 문제로 오해됐음 - 카메라를 못 연 것임을 알림
+      errorMessage = err && err.name === 'NotAllowedError'
+        ? '카메라 사용이 허용되지 않았어요.\n설정에서 카메라를 허용해주세요'
+        : '카메라를 켜지 못했어요.\n다시 시도해주세요';
       step = 'error';
       render();
       return;
