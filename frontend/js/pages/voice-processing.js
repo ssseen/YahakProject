@@ -89,6 +89,7 @@ export function renderVoiceProcessing(container) {
   let peakLevel = 0; // 녹음 중 들어온 가장 큰 소리 (0이면 마이크가 소리를 못 받은 것)
   // ?caption=late 시험용: 자막을 켠 시점 전/후로 녹음이 계속 들어오는지 비교
   let captionStartedAt = 0;   // 자막을 켠 시각 (0이면 아직 안 켬)
+  let recStartedAt = 0;       // 녹음기를 켠 시각
   let peakAfterCaption = 0;   // 자막을 켠 뒤 들어온 가장 큰 소리
   let chunksBeforeCaption = { n: 0, bytes: 0 };
   let chunksAfterCaption = { n: 0, bytes: 0 };
@@ -137,7 +138,7 @@ export function renderVoiceProcessing(container) {
       }
     };
     recognition.onerror = (e) => micDebug('자막 오류: ' + e.error);
-    recognition.onstart = () => micDebug('자막 시작됨');
+    recognition.onstart = () => micDebug(`자막 시작됨 (녹음 시작 후 ${Date.now() - recStartedAt}ms)`);
 
     try {
       recognition.start();
@@ -251,6 +252,15 @@ export function renderVoiceProcessing(container) {
     throw new Error('마이크가 소리를 받지 못함(muted)');
   }
 
+  // 늦게 켜기(?caption=late): 마이크 소리가 실제로 흐르기 시작한 걸 확인한 다음에 자막을 켠다.
+  // 확인 신호는 둘 중 먼저 오는 것 - 소리 막대에 소리가 잡힘(~0.1초) 또는 녹음기 첫 조각(~0.1초 단위)
+  function maybeStartLateCaption(reason) {
+    if (!LATE_CAPTION || captionStartedAt || step !== 'recording') return;
+    captionStartedAt = Date.now();
+    micDebug(`녹음 시작 확인(${reason}, ${captionStartedAt - recStartedAt}ms) → 이제 자막 켬`);
+    startLiveCaption();
+  }
+
   async function startRecording() {
     stopSpeaking();
     // 소리 막대용 AudioContext는 버튼을 누른 그 순간(await 전)에 만들어야 아이폰에서 멈춤(suspended) 상태가 안 됨
@@ -294,12 +304,7 @@ export function renderVoiceProcessing(container) {
         const bucket = captionStartedAt ? chunksAfterCaption : chunksBeforeCaption;
         bucket.n += 1;
         bucket.bytes += e.data.size;
-        // 늦게 켜기: 녹음기가 실제로 소리를 받기 시작한 걸 확인한 다음에 자막을 켠다
-        if (LATE_CAPTION && !captionStartedAt && step === 'recording') {
-          captionStartedAt = Date.now();
-          micDebug('녹음 시작 확인 → 이제 자막 켬 (caption=late)');
-          startLiveCaption();
-        }
+        maybeStartLateCaption('첫 녹음 조각');
       }
     });
 
@@ -321,8 +326,10 @@ export function renderVoiceProcessing(container) {
       uploadVoice(blob);
     });
 
-    // 0.5초마다 조각으로 받아 둔다 - 끝날 때 한 번에만 받으면 그 한 번이 비었을 때 전체가 비어 버림
-    rec.start(500);
+    // 조각으로 나눠 받아 둔다 - 끝날 때 한 번에만 받으면 그 한 번이 비었을 때 전체가 비어 버림.
+    // 늦게 켜기 시험 중에는 첫 조각이 빨리 오도록 0.1초 단위
+    recStartedAt = Date.now();
+    rec.start(LATE_CAPTION ? 100 : 500);
 
     step = 'recording';
     render();
@@ -350,6 +357,7 @@ export function renderVoiceProcessing(container) {
       const level = Math.min(average / 128, 1);
       if (level > peakLevel) peakLevel = level;
       if (captionStartedAt && level > peakAfterCaption) peakAfterCaption = level;
+      if (average > 0) maybeStartLateCaption('소리 막대');
 
       bars.forEach((bar, i) => {
         const variance = 0.7 + (i % 3) * 0.15;
