@@ -19,6 +19,28 @@ const STT_URL = STT_BASE + '/transcribe';
 // (서버가 두 번 돌리므로 그만큼 느려짐 - 측정할 때만)
 const STT_DEBUG = new URLSearchParams(window.location.search).get('sttdebug') === '1';
 const HINT_POLL_MS = 800; // 녹음하는 동안 힌트(시험지 낱말)를 받아 오는 간격
+// 마이크 진단 표시: 주소에 ?micdebug=1 을 붙이면 마이크 상태(트랙 muted, 소리 크기, 자막 오류, 녹음 크기)를 화면 아래에 띄움
+// (아이폰에서 두 번째 질문부터 마이크가 소리를 못 받는 문제 원인 확인용)
+const MIC_DEBUG = new URLSearchParams(window.location.search).get('micdebug') === '1';
+
+function micDebug(line) {
+  console.log('🎤 ' + line);
+  if (!MIC_DEBUG) return;
+  let panel = document.getElementById('mic-debug-panel');
+  if (!panel) {
+    panel = document.createElement('pre');
+    panel.id = 'mic-debug-panel';
+    panel.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:40vh;overflow:auto;margin:0;'
+      + 'padding:8px;background:rgba(0,0,0,.8);color:#0f0;font:12px/1.4 monospace;white-space:pre-wrap;z-index:99999;';
+    panel.addEventListener('click', () => panel.remove()); // 누르면 닫힘
+    document.body.appendChild(panel);
+  }
+  const t = new Date().toTimeString().slice(0, 8);
+  panel.textContent += `[${t}] ${line}\n`;
+  panel.scrollTop = panel.scrollHeight;
+}
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // 로딩 중 "나가기"를 눌렀을 때: 사진/질문 상태를 비우고 메뉴로
 const LEAVE = () => goBack();
@@ -53,6 +75,7 @@ export function renderVoiceProcessing(container) {
   let hintText = '';
   let hintTimer = null;
   let sttDebug = null; // STT_DEBUG일 때 서버가 준 비교 결과
+  let peakLevel = 0; // 녹음 중 들어온 가장 큰 소리 (0이면 마이크가 소리를 못 받은 것)
 
   function render() {
     if (step === 'ready') renderReady();
@@ -65,7 +88,11 @@ export function renderVoiceProcessing(container) {
     if (recognition) {
       try {
         recognition.onend = null;
-        recognition.stop();
+        recognition.onresult = null;
+        recognition.onerror = null;
+        // stop()은 마지막 결과를 기다리느라 마이크를 바로 안 놓는 경우가 있어(아이폰) abort()로 즉시 해제.
+        // 자막은 화면 표시용이라 마지막 결과를 버려도 됨
+        recognition.abort();
       } catch (e) {
         // ignore
       }
@@ -93,12 +120,13 @@ export function renderVoiceProcessing(container) {
         box.style.color = 'var(--color-text)';
       }
     };
-    recognition.onerror = (e) => console.warn('실시간 자막 경고:', e.error);
+    recognition.onerror = (e) => micDebug('자막 오류: ' + e.error);
+    recognition.onstart = () => micDebug('자막 시작됨');
 
     try {
       recognition.start();
     } catch (e) {
-      console.warn('실시간 자막 시작 실패:', e);
+      micDebug('자막 시작 실패: ' + e);
     }
   }
 
@@ -186,32 +214,69 @@ export function renderVoiceProcessing(container) {
     hintTimer = null;
   }
 
+  // 마이크를 연다. 아이폰은 바로 전에 TTS(해설 읽기·안내 음성)가 재생 중이었으면 오디오가 "재생 모드"에서
+  // "녹음 모드"로 넘어가는 동안 소리 없는(muted) 마이크를 주는 경우가 있어, 재생을 끊고 잠깐 기다린 뒤 열고,
+  // 그래도 muted면 한 번 닫았다가 다시 연다.
+  async function openMic() {
+    const wasSpeaking = 'speechSynthesis' in window
+      && (window.speechSynthesis.speaking || window.speechSynthesis.pending);
+    stopSpeaking();
+    if (wasSpeaking) await wait(300);
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const track = s.getAudioTracks()[0];
+      micDebug(`마이크 열림(${attempt}번째): ${track && track.label} muted=${track && track.muted} `
+        + `state=${track && track.readyState} TTS재생중이었음=${!!wasSpeaking}`);
+      if (track && !track.muted && track.readyState === 'live') return s;
+      s.getTracks().forEach((t) => t.stop());
+      await wait(400);
+    }
+    throw new Error('마이크가 소리를 받지 못함(muted)');
+  }
+
   async function startRecording() {
     stopSpeaking();
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await openMic();
     } catch (err) {
-      console.error('마이크 접근 실패:', err);
+      micDebug('마이크 접근 실패: ' + err);
       step = 'error';
       render();
       return;
     }
+    const track = stream.getAudioTracks()[0];
+    if (track) {
+      track.addEventListener('mute', () => micDebug('⚠ 녹음 중 마이크 muted 됨'));
+      track.addEventListener('ended', () => micDebug('⚠ 녹음 중 마이크 끊김(ended)'));
+    }
 
     audioChunks = [];
     recognizedText = '';
-    mediaRecorder = new MediaRecorder(stream);
+    const recStream = stream; // 녹음이 완전히 끝난 뒤 이 스트림을 닫는다
+    const rec = new MediaRecorder(recStream);
+    mediaRecorder = rec;
+    micDebug('녹음 형식: ' + rec.mimeType);
 
-    mediaRecorder.addEventListener('dataavailable', (e) => {
+    peakLevel = 0;
+    rec.addEventListener('dataavailable', (e) => {
       if (e.data.size > 0) audioChunks.push(e.data);
     });
 
-    mediaRecorder.addEventListener('stop', () => {
+    rec.addEventListener('stop', () => {
+      // 마이크는 녹음기가 마지막 데이터를 다 내보낸 다음에 끈다
+      // (예전엔 stop() 직후 바로 꺼서 아이폰에서 마지막 조각이 빠질 수 있었음)
+      recStream.getTracks().forEach((t) => t.stop());
       if (leftPage) return;
-      const blob = new Blob(audioChunks, { type: 'audio/webm' });
+      const size = audioChunks.reduce((n, c) => n + c.size, 0);
+      micDebug(`녹음 끝: ${audioChunks.length}조각 ${size} bytes`);
+      micDebug(`녹음 중 최대 소리 크기: ${peakLevel.toFixed(2)} (0이면 마이크가 소리를 못 받은 것)`);
+      const blob = new Blob(audioChunks, { type: rec.mimeType || audioChunks[0]?.type || 'audio/webm' });
       uploadVoice(blob);
     });
 
-    mediaRecorder.start();
+    // 0.5초마다 조각으로 받아 둔다 - 끝날 때 한 번에만 받으면 그 한 번이 비었을 때 전체가 비어 버림
+    rec.start(500);
 
     step = 'recording';
     render();
@@ -222,6 +287,9 @@ export function renderVoiceProcessing(container) {
 
   function startVolumeMeter() {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    // 아이폰은 터치 직후가 아닌 시점(마이크 권한 await 뒤)에 만든 AudioContext가 멈춘(suspended) 상태로 시작함
+    if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+    micDebug('소리 막대 AudioContext: ' + audioContext.state);
     const source = audioContext.createMediaStreamSource(stream);
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
@@ -234,6 +302,7 @@ export function renderVoiceProcessing(container) {
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((sum, v) => sum + v, 0) / dataArray.length;
       const level = Math.min(average / 128, 1);
+      if (level > peakLevel) peakLevel = level;
 
       bars.forEach((bar, i) => {
         const variance = 0.7 + (i % 3) * 0.15;
@@ -270,12 +339,11 @@ export function renderVoiceProcessing(container) {
         animationFrameId = null;
       }
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
-      }
-      if (stream) {
+        mediaRecorder.stop(); // 마이크는 녹음기 'stop' 이벤트에서 끈다
+      } else if (stream) {
         stream.getTracks().forEach((track) => track.stop());
-        stream = null;
       }
+      stream = null;
       if (audioContext) {
         audioContext.close();
         audioContext = null;
@@ -308,6 +376,15 @@ export function renderVoiceProcessing(container) {
     const signal = startLoading(LEAVE); // 녹음이 끝나고 처리 시작할 때 1번
 
     stopHintFetch();
+    // 소리가 하나도 안 담긴 녹음(아이폰에서 마이크가 소리를 못 받은 경우 ~수백 bytes)은 서버에 보내지 않는다
+    if (blob.size < 1000) {
+      micDebug(`녹음이 비어 있어 전송 안 함 (${blob.size} bytes)`);
+      endLoading(() => {
+        step = 'error';
+        render();
+      });
+      return;
+    }
     const formData = new FormData();
     formData.append('audio_file', blob, 'record.webm');
     if (hintText) formData.append('prompt', hintText);
