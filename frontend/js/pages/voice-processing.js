@@ -24,10 +24,15 @@ const HINT_POLL_MS = 800; // 녹음하는 동안 힌트(시험지 낱말)를 받
 const MIC_DEBUG = new URLSearchParams(window.location.search).get('micdebug') === '1';
 // 아이폰/아이패드(iOS는 크롬도 사파리 엔진): 실시간 자막(음성인식)이 녹음기와 마이크를 동시에 쓰면
 // 가끔 자막 쪽이 마이크를 가져가 녹음이 0 bytes가 됨 (2026-11-21 ?micdebug=1로 확인: 마이크 정상 열림 +
-// 자막 시작됨 + 녹음 0조각). 그래서 iOS에서는 녹음 중 실시간 자막을 끈다. 비교용으로 ?caption=1이면 강제로 켬
+// 자막 시작됨 + 녹음 0조각). 그래서 iOS에서는 녹음 중 실시간 자막을 끈다.
+// 시험용: ?caption=1 이면 iOS에서도 예전처럼 바로 켬,
+//        ?caption=late 면 녹음기가 첫 소리 조각을 실제로 받은 뒤에 자막을 켬
+//        (녹음기가 먼저 마이크를 잡게 해서 충돌이 없어지는지 확인용 - 진단 패널에 자막 전/후 녹음량이 찍힘)
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const LIVE_CAPTION = !IS_IOS || new URLSearchParams(window.location.search).get('caption') === '1';
+const CAPTION_PARAM = new URLSearchParams(window.location.search).get('caption');
+const LATE_CAPTION = CAPTION_PARAM === 'late';
+const LIVE_CAPTION = LATE_CAPTION || !IS_IOS || CAPTION_PARAM === '1';
 
 function micDebug(line) {
   console.log('🎤 ' + line);
@@ -82,6 +87,11 @@ export function renderVoiceProcessing(container) {
   let hintTimer = null;
   let sttDebug = null; // STT_DEBUG일 때 서버가 준 비교 결과
   let peakLevel = 0; // 녹음 중 들어온 가장 큰 소리 (0이면 마이크가 소리를 못 받은 것)
+  // ?caption=late 시험용: 자막을 켠 시점 전/후로 녹음이 계속 들어오는지 비교
+  let captionStartedAt = 0;   // 자막을 켠 시각 (0이면 아직 안 켬)
+  let peakAfterCaption = 0;   // 자막을 켠 뒤 들어온 가장 큰 소리
+  let chunksBeforeCaption = { n: 0, bytes: 0 };
+  let chunksAfterCaption = { n: 0, bytes: 0 };
 
   function render() {
     if (step === 'ready') renderReady();
@@ -273,10 +283,23 @@ export function renderVoiceProcessing(container) {
     micDebug('녹음 형식: ' + rec.mimeType);
 
     peakLevel = 0;
+    captionStartedAt = 0;
+    peakAfterCaption = 0;
+    chunksBeforeCaption = { n: 0, bytes: 0 };
+    chunksAfterCaption = { n: 0, bytes: 0 };
     rec.addEventListener('dataavailable', (e) => {
       if (e.data.size > 0) {
         if (!audioChunks.length) micDebug(`첫 녹음 조각 받음 (${e.data.size} bytes, ${e.data.type})`);
         audioChunks.push(e.data);
+        const bucket = captionStartedAt ? chunksAfterCaption : chunksBeforeCaption;
+        bucket.n += 1;
+        bucket.bytes += e.data.size;
+        // 늦게 켜기: 녹음기가 실제로 소리를 받기 시작한 걸 확인한 다음에 자막을 켠다
+        if (LATE_CAPTION && !captionStartedAt && step === 'recording') {
+          captionStartedAt = Date.now();
+          micDebug('녹음 시작 확인 → 이제 자막 켬 (caption=late)');
+          startLiveCaption();
+        }
       }
     });
 
@@ -288,6 +311,12 @@ export function renderVoiceProcessing(container) {
       const size = audioChunks.reduce((n, c) => n + c.size, 0);
       micDebug(`녹음 끝: ${audioChunks.length}조각 ${size} bytes`);
       micDebug(`녹음 중 최대 소리 크기: ${peakLevel.toFixed(2)} (0이면 마이크가 소리를 못 받은 것)`);
+      if (LATE_CAPTION) {
+        micDebug(`자막 켜기 전: ${chunksBeforeCaption.n}조각 ${chunksBeforeCaption.bytes} bytes / `
+          + `켠 뒤: ${chunksAfterCaption.n}조각 ${chunksAfterCaption.bytes} bytes`);
+        micDebug(`자막 켠 뒤 최대 소리 크기: ${captionStartedAt ? peakAfterCaption.toFixed(2) : '(자막 못 켬)'} `
+          + '(말했는데 0이면 자막이 마이크를 가져간 것)');
+      }
       const blob = new Blob(audioChunks, { type: rec.mimeType || audioChunks[0]?.type || 'audio/webm' });
       uploadVoice(blob);
     });
@@ -299,7 +328,8 @@ export function renderVoiceProcessing(container) {
     render();
     startHintFetch();
     startVolumeMeter();
-    if (LIVE_CAPTION) startLiveCaption();
+    if (LATE_CAPTION) micDebug('자막은 녹음 첫 조각을 받은 뒤 켬 (caption=late)');
+    else if (LIVE_CAPTION) startLiveCaption();
     else micDebug('실시간 자막 끔 (iOS - 녹음과 마이크 충돌 방지)');
   }
 
@@ -319,6 +349,7 @@ export function renderVoiceProcessing(container) {
       const average = dataArray.reduce((sum, v) => sum + v, 0) / dataArray.length;
       const level = Math.min(average / 128, 1);
       if (level > peakLevel) peakLevel = level;
+      if (captionStartedAt && level > peakAfterCaption) peakAfterCaption = level;
 
       bars.forEach((bar, i) => {
         const variance = 0.7 + (i % 3) * 0.15;
