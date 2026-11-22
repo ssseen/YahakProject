@@ -137,6 +137,25 @@ def _search_unfiltered(query_text):
     return list(hits or [])
 
 
+def _search_by_subject(query_text, subject):
+    """subject_mismatch로 과목이 정정됐는데 무필터 top_k=30에 그 과목 문항이 없을 때만 쓰는
+    보조 검색. 실패하면 빈 리스트(유사문제 없음)로 넘어간다 - 해설 자체는 막지 않는다."""
+    try:
+        res = _get_pinecone_index().search(
+            namespace=_PINECONE_NAMESPACE,
+            query={"inputs": {"text": query_text}, "top_k": _PINECONE_TOP_K,
+                   "filter": {"subject": {"$eq": subject}}},
+        )
+        result = getattr(res, "result", res)
+        hits = getattr(result, "hits", None)
+        if hits is None and isinstance(result, dict):
+            hits = result.get("hits")
+        return list(hits or [])
+    except Exception as e:
+        print(f"경고: 과목 지정 Pinecone 재검색 실패({subject}): {e!r}")
+        return []
+
+
 def warmup_pinecone():
     """
     Pinecone 클라이언트 생성 + 연결을 미리 해둔다 (2026-10-26). 프로세스의 첫 검색만 연결
@@ -809,11 +828,33 @@ def _explain(ctx, stt_text, user_question, user_level, timings):
     mismatch = explanation.get("subject_mismatch")
     if mismatch:
         suggested_branch = BRANCH_OF.get(mismatch, "국사과")
-        if suggested_branch == "수학" or suggested_branch == branch:
+        if suggested_branch == branch:
             suggested_branch = "국사과"
         print(f"경고: subject_mismatch 반환됨 (지정={branch}, 제안={mismatch}) "
               f"-> {suggested_branch}로 1회 재호출")
+        prev_branch = branch
         branch = suggested_branch
+        if branch != prev_branch:
+            # Pinecone 판정(예: 과학)이 틀렸다고 Gemini가 정정한 경우 - 힌트/유사문제/참고자료를
+            # 새 과목 기준으로 다시 만든다. subject_hint를 안 바꾸면 프롬프트에 "과목: 과학"이
+            # 그대로 들어가서 수학 explainer도 또 subject_mismatch를 돌려주고, 유사문제도 과학이 남는다.
+            if mismatch in BRANCH_OF:
+                subject_hint = mismatch
+            similar_questions = _format_similar_questions(
+                select_similar(matches, branch, exclude_id=None, user_level=user_level))
+            if not similar_questions and subject_hint:
+                # 처음 top_k=30에 정정된 과목 문항이 없으면 그 과목으로만 한 번 더 검색
+                extra = _search_by_subject(locate_result.query_text, subject_hint)
+                similar_questions = _format_similar_questions(
+                    select_similar(extra, branch, exclude_id=None, user_level=user_level))
+            below_threshold = not similar_questions
+            category = _category_hint_for_branch(matches[:10], branch)
+            reference = None
+            if similar_questions:
+                top = similar_questions[0]
+                reference = {"answer": top.get("answer"), "explanation": top.get("explanation")}
+            type_info = None  # 이전 과목 기준으로 만든 유형 분류라 버린다
+            common_kwargs.update(subject_hint=subject_hint, category=category, reference=reference)
         # 재호출 브랜치가 "영어"로 바뀌는 경우를 대비해, 아직 안 만들어둔 ocr_result_english를
         # 이 시점에 만든다 (처음부터 branch == "영어"였으면 위에서 이미 만들어져 있음).
         if branch == "영어" and ocr_result_english is None:

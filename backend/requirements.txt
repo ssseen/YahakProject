@@ -5,6 +5,7 @@ google-generativeai
 httpx
 opencv-python
 numpy
+matplotlib  # 수학 해설 그래프(math_explainer.generate_diagram). Cloud Run용 requirements/Dockerfile에도 반드시 포함
 pillow
 python-multipart
 pinecone
