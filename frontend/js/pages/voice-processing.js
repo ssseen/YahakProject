@@ -19,21 +19,12 @@ const STT_URL = STT_BASE + '/transcribe';
 // (서버가 두 번 돌리므로 그만큼 느려짐 - 측정할 때만)
 const STT_DEBUG = new URLSearchParams(window.location.search).get('sttdebug') === '1';
 const HINT_POLL_MS = 800; // 녹음하는 동안 힌트(시험지 낱말)를 받아 오는 간격
-// 마이크 진단 표시: 주소에 ?micdebug=1 을 붙이면 마이크 상태(트랙 muted, 소리 크기, 자막 오류, 녹음 크기)를 화면 아래에 띄움
+// 마이크 진단 표시: 주소에 ?micdebug=1 을 붙이면 마이크 상태(트랙 muted, 소리 크기, 녹음 크기)를 화면 아래에 띄움
 // (아이폰에서 두 번째 질문부터 마이크가 소리를 못 받는 문제 원인 확인용)
 const MIC_DEBUG = new URLSearchParams(window.location.search).get('micdebug') === '1';
-// 아이폰/아이패드(iOS는 크롬도 사파리 엔진): 실시간 자막(음성인식)이 녹음기와 마이크를 동시에 쓰면
-// 가끔 자막 쪽이 마이크를 가져가 녹음이 0 bytes가 됨 (2026-11-21 ?micdebug=1로 확인: 마이크 정상 열림 +
-// 자막 시작됨 + 녹음 0조각).
-// 그래서 iOS에서는 "늦게 켜기": 녹음기가 실제로 소리를 받기 시작한 걸 확인한 뒤(소리 막대에 소리가 잡히거나
-// 첫 녹음 조각) 자막을 켠다 - 녹음기가 먼저 마이크를 잡아두면 자막이 나중에 켜져도 녹음을 안 뺏음(실측 확인).
-// 안드로이드/PC는 충돌이 없어서(30일 로그 실패 0) 예전처럼 바로 켠다.
-// 주소 옵션: ?caption=off 자막 끔 / ?caption=1 iOS에서도 바로 켬(충돌 재현용) / ?caption=late 모든 기기 늦게 켜기
-const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
-  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const CAPTION_PARAM = new URLSearchParams(window.location.search).get('caption');
-const LIVE_CAPTION = CAPTION_PARAM !== 'off';
-const LATE_CAPTION = LIVE_CAPTION && (CAPTION_PARAM === 'late' || (IS_IOS && CAPTION_PARAM !== '1'));
+// 실시간 자막(Web Speech API)은 뺐다 (2026-11-27). 녹음기와 마이크를 동시에 쓰다가 자막 쪽이 마이크를 가져가
+// 녹음이 0 bytes가 되는 일이 있었음 (2026-11-21 ?micdebug=1로 확인). 질문 글자는 원래부터 Whisper 결과만 썼으므로
+// 자막을 빼도 기능은 그대로다.
 
 function micDebug(line) {
   console.log('🎤 ' + line);
@@ -76,9 +67,6 @@ export function renderVoiceProcessing(container) {
   let animationFrameId = null;
   let leftPage = false;
 
-  // 실시간 자막(크롬 Web Speech API) - 말하는 동안 화면에 보여주기만 함.
-  // 최종 질문 텍스트는 항상 Whisper 결과를 씀 (자막 텍스트는 서버로 안 보냄)
-  let recognition = null;
   let recognizedText = '';
   let quiz = null; // 기다리는 동안 퀴즈 - 해설이 나왔을 때 퀴즈를 했는지 확인용
   let retakeMessage = ''; // 해설 요청이 retake(사진 다시 찍기)로 끝났을 때 보여줄 서버 안내 문구
@@ -88,12 +76,6 @@ export function renderVoiceProcessing(container) {
   let hintTimer = null;
   let sttDebug = null; // STT_DEBUG일 때 서버가 준 비교 결과
   let peakLevel = 0; // 녹음 중 들어온 가장 큰 소리 (0이면 마이크가 소리를 못 받은 것)
-  // ?caption=late 시험용: 자막을 켠 시점 전/후로 녹음이 계속 들어오는지 비교
-  let captionStartedAt = 0;   // 자막을 켠 시각 (0이면 아직 안 켬)
-  let recStartedAt = 0;       // 녹음기를 켠 시각
-  let peakAfterCaption = 0;   // 자막을 켠 뒤 들어온 가장 큰 소리
-  let chunksBeforeCaption = { n: 0, bytes: 0 };
-  let chunksAfterCaption = { n: 0, bytes: 0 };
 
   function render() {
     if (step === 'ready') renderReady();
@@ -102,57 +84,10 @@ export function renderVoiceProcessing(container) {
     else renderError();
   }
 
-  function stopLiveCaption() {
-    if (recognition) {
-      try {
-        recognition.onend = null;
-        recognition.onresult = null;
-        recognition.onerror = null;
-        // stop()은 마지막 결과를 기다리느라 마이크를 바로 안 놓는 경우가 있어(아이폰) abort()로 즉시 해제.
-        // 자막은 화면 표시용이라 마지막 결과를 버려도 됨
-        recognition.abort();
-      } catch (e) {
-        // ignore
-      }
-      recognition = null;
-    }
-  }
-
-  function startLiveCaption() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return; // 지원 안 하는 브라우저면 자막 없이 녹음만
-
-    recognition = new SpeechRecognition();
-    recognition.lang = 'ko-KR';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-
-    recognition.onresult = (event) => {
-      let text = '';
-      for (let i = 0; i < event.results.length; i++) {
-        text += event.results[i][0].transcript + (event.results[i].isFinal ? ' ' : '');
-      }
-      const box = container.querySelector('#live-caption');
-      if (box && text.trim()) {
-        box.textContent = '"' + text.trim() + '"';
-        box.style.color = 'var(--color-text)';
-      }
-    };
-    recognition.onerror = (e) => micDebug('자막 오류: ' + e.error);
-    recognition.onstart = () => micDebug(`자막 시작됨 (녹음 시작 후 ${Date.now() - recStartedAt}ms)`);
-
-    try {
-      recognition.start();
-    } catch (e) {
-      micDebug('자막 시작 실패: ' + e);
-    }
-  }
-
   function stopAudioStream() {
     leftPage = true;
     stopHintFetch();
     stopSpeaking();
-    stopLiveCaption();
     if (animationFrameId) {
       cancelAnimationFrame(animationFrameId);
       animationFrameId = null;
@@ -253,15 +188,6 @@ export function renderVoiceProcessing(container) {
     throw new Error('마이크가 소리를 받지 못함(muted)');
   }
 
-  // 늦게 켜기(iOS 기본, 다른 기기는 ?caption=late): 마이크 소리가 실제로 흐르기 시작한 걸 확인한 다음에 자막을 켠다.
-  // 확인 신호는 둘 중 먼저 오는 것 - 소리 막대에 소리가 잡힘(~0.1초) 또는 녹음기 첫 조각(~0.1초 단위)
-  function maybeStartLateCaption(reason) {
-    if (!LATE_CAPTION || captionStartedAt || step !== 'recording') return;
-    captionStartedAt = Date.now();
-    micDebug(`녹음 시작 확인(${reason}, ${captionStartedAt - recStartedAt}ms) → 이제 자막 켬`);
-    startLiveCaption();
-  }
-
   async function startRecording() {
     stopSpeaking();
     // 소리 막대용 AudioContext는 버튼을 누른 그 순간(await 전)에 만들어야 아이폰에서 멈춤(suspended) 상태가 안 됨
@@ -294,18 +220,10 @@ export function renderVoiceProcessing(container) {
     micDebug('녹음 형식: ' + rec.mimeType);
 
     peakLevel = 0;
-    captionStartedAt = 0;
-    peakAfterCaption = 0;
-    chunksBeforeCaption = { n: 0, bytes: 0 };
-    chunksAfterCaption = { n: 0, bytes: 0 };
     rec.addEventListener('dataavailable', (e) => {
       if (e.data.size > 0) {
         if (!audioChunks.length) micDebug(`첫 녹음 조각 받음 (${e.data.size} bytes, ${e.data.type})`);
         audioChunks.push(e.data);
-        const bucket = captionStartedAt ? chunksAfterCaption : chunksBeforeCaption;
-        bucket.n += 1;
-        bucket.bytes += e.data.size;
-        maybeStartLateCaption('첫 녹음 조각');
       }
     });
 
@@ -317,28 +235,17 @@ export function renderVoiceProcessing(container) {
       const size = audioChunks.reduce((n, c) => n + c.size, 0);
       micDebug(`녹음 끝: ${audioChunks.length}조각 ${size} bytes`);
       micDebug(`녹음 중 최대 소리 크기: ${peakLevel.toFixed(2)} (0이면 마이크가 소리를 못 받은 것)`);
-      if (LATE_CAPTION) {
-        micDebug(`자막 켜기 전: ${chunksBeforeCaption.n}조각 ${chunksBeforeCaption.bytes} bytes / `
-          + `켠 뒤: ${chunksAfterCaption.n}조각 ${chunksAfterCaption.bytes} bytes`);
-        micDebug(`자막 켠 뒤 최대 소리 크기: ${captionStartedAt ? peakAfterCaption.toFixed(2) : '(자막 못 켬)'} `
-          + '(말했는데 0이면 자막이 마이크를 가져간 것)');
-      }
       const blob = new Blob(audioChunks, { type: rec.mimeType || audioChunks[0]?.type || 'audio/webm' });
       uploadVoice(blob);
     });
 
-    // 조각으로 나눠 받아 둔다 - 끝날 때 한 번에만 받으면 그 한 번이 비었을 때 전체가 비어 버림.
-    // 늦게 켜기 시험 중에는 첫 조각이 빨리 오도록 0.1초 단위
-    recStartedAt = Date.now();
-    rec.start(LATE_CAPTION ? 100 : 500);
+    // 조각으로 나눠 받아 둔다 - 끝날 때 한 번에만 받으면 그 한 번이 비었을 때 전체가 비어 버림
+    rec.start(500);
 
     step = 'recording';
     render();
     startHintFetch();
     startVolumeMeter();
-    if (LATE_CAPTION) micDebug('자막은 녹음 첫 조각을 받은 뒤 켬 (늦게 켜기)');
-    else if (LIVE_CAPTION) startLiveCaption();
-    else micDebug('실시간 자막 끔 (caption=off)');
   }
 
   function startVolumeMeter() {
@@ -357,8 +264,6 @@ export function renderVoiceProcessing(container) {
       const average = dataArray.reduce((sum, v) => sum + v, 0) / dataArray.length;
       const level = Math.min(average / 128, 1);
       if (level > peakLevel) peakLevel = level;
-      if (captionStartedAt && level > peakAfterCaption) peakAfterCaption = level;
-      if (average > 0) maybeStartLateCaption('소리 막대');
 
       bars.forEach((bar, i) => {
         const variance = 0.7 + (i % 3) * 0.15;
@@ -380,8 +285,8 @@ export function renderVoiceProcessing(container) {
         <div class="wave-bars" aria-hidden="true">
           ${barsHtml}
         </div>
-        <p id="live-caption" style="min-height: 48px; margin: 12px 24px; padding: 10px 14px; background: #F5F5F5; border-radius: 10px; font-size: 0.85rem; color: var(--color-text-muted); text-align: center; word-break: keep-all;">
-          ${LIVE_CAPTION ? '말씀하시는 내용이 여기에 실시간으로 표시됩니다...' : '듣고 있어요. 편하게 말씀해 주세요.'}
+        <p style="min-height: 48px; margin: 12px 24px; padding: 10px 14px; background: #F5F5F5; border-radius: 10px; font-size: 0.85rem; color: var(--color-text-muted); text-align: center; word-break: keep-all;">
+          듣고 있어요. 편하게 말씀해 주세요.
         </p>
         <button class="stop-btn" id="stop-btn" type="button" aria-label="녹음 종료">
           <img src="image/stop_btn.svg" alt="" aria-hidden="true" class="stop-icon" />
@@ -389,7 +294,6 @@ export function renderVoiceProcessing(container) {
       </section>
     `;
     container.querySelector('#stop-btn').addEventListener('click', () => {
-      stopLiveCaption();
       if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
